@@ -1,12 +1,12 @@
 # KOReader as the home app
 
-KOReader is the only launcher on the device. That is deliberate, and it does
-**not** happen by itself.
+KOReader is the only launcher on the device. That is deliberate, and it does not
+happen by itself.
 
 ## The official APK is not a launcher
 
-The release APK from GitHub does **not** declare the HOME category, so Android
-will never offer it as a home app. Verified by parsing the binary manifest of
+The release APK from GitHub does not declare the HOME category, so Android will
+never offer it as a home app. This is verified by parsing the binary manifest of
 `koreader-android-arm-v2026.07.1.apk` straight from the release:
 
 | MAIN intent-filter of `org.koreader.launcher.MainActivity` | official APK | after the patch |
@@ -16,7 +16,7 @@ will never offer it as a home app. Verified by parsing the binary manifest of
 | `android.intent.category.HOME` | **no** | **yes** |
 | `android.intent.category.DEFAULT` | **no** | **yes** |
 
-Two further tells, both quick to check:
+Compare the official APK with the patched one:
 
 ```
 official  : 29,085,335 B   signer CN=Qingping Hou, OU=KOReader    HOME categories: 0
@@ -77,44 +77,44 @@ aapt2 dump xmltree --file AndroidManifest.xml koreader-home-unsigned.apk \
 
 ## Why this is a hard requirement, not a nicety
 
-`scripts/30-debloat.sh` deletes `EPubProd.apk` — and that is the **only other app
-declaring HOME**. Remove it while the replacement cannot be a launcher and the
-device boots to a screen with no way to start anything. So `30-debloat.sh`
-refuses to run unless it can confirm that some installed launcher really declares
-HOME (it pulls the installed APK and parses its manifest; `--force` overrides).
+`scripts/30-debloat.sh` deletes `EPubProd.apk`, the only other app declaring
+HOME. Remove it while the replacement cannot be a launcher and the device boots
+to a screen with no way to start anything. So `30-debloat.sh` refuses to run
+unless it can confirm that some installed launcher really declares HOME. It pulls
+the installed APK and parses its manifest. `--force` overrides.
 
 Nothing else needs to "set" the home app: with EPubProd gone, KOReader is the
 sole candidate, so Android resolves HOME to it with no preference and no chooser.
-A chooser only appears while *both* are installed — i.e. during the window
-between installing KOReader and running the debloat.
+A chooser only appears while *both* are installed, during the window between
+installing KOReader and running the debloat.
 
 ## ⚠️ Do NOT move KOReader into `/system/app`
 
 It is tempting: then a factory reset could not remove it. **It breaks KOReader
 completely.** Its `MainActivity` is a `NativeActivity`, which loads its native
-library by absolute path from `nativeLibraryDir` — on this build always
-`/data/app-lib/<name>` — and never falls back to `/system/lib`. You get:
+library by absolute path from `nativeLibraryDir` (on this build always
+`/data/app-lib/<name>`) and never falls back to `/system/lib`. You get:
 
 ```
 java.lang.RuntimeException: Unable to start activity …MainActivity
   Caused by: java.lang.IllegalArgumentException: Unable to find native library: luajit-launcher
 ```
 
-Copying its five `.so` files into `/system/lib` does **not** help.
+Copying its five `.so` files into `/system/lib` does not help.
 
 The full reasoning, and the evidence that this is a property of the build rather
 than of KOReader, is in [`findings.md` §7](findings.md). The short version:
 
-> Relocating an APK into `/system` is only safe for **pure-Java** apps. KOReader
-> has native code; the USB helper does not.
+> Relocating an APK into `/system` is only safe for pure-Java apps. KOReader has
+> native code. The USB helper does not.
 
 ## The rule about the HOME category
 
 **Exactly one app on this device should declare HOME.** An earlier helper build
 declared it, and because no default was set the device booted showing a
 *"Complete action using"* chooser between KOReader and the helper. The helper's
-manifest now deliberately omits the HOME category, which is why the USB screen
-never competes with the reader.
+manifest now deliberately omits the HOME category, so the USB screen never
+competes with the reader.
 
 If you add any other app, check it before installing:
 
@@ -124,10 +124,10 @@ aapt2 dump xmltree --file AndroidManifest.xml some.apk | grep -c category.HOME
 
 ## After a factory reset
 
-KOReader lives in `/data`, so a reset removes it — and so does the patched
-signature's consequence: reinstall from your **prepared** APK, not from GitHub.
+KOReader lives in `/data`, so a reset removes it. Because of the patched
+signature, reinstall from your **prepared** APK, not from GitHub.
 
-Your books and KOReader's settings do **not** disappear. They live on the user
+Your books and KOReader's settings do not disappear. They live on the user
 partition (`mmcblk0p4`, mounted `/storage/sdcard1`), which the stock recovery's
 wipe does not target (`findings.md` §11), so reading position comes back with
 `/storage/sdcard1/koreader/settings.reader.lua`.
@@ -146,16 +146,13 @@ wipe does not target (`findings.md` §11), so reading position comes back with
 
 WiFi is left enabled on purpose: KOReader's dictionary lookup and Wikipedia
 integration need it. If you want the device fully offline, turn it off in the
-framework settings — nothing in this project depends on it.
+framework settings. Nothing in this project depends on it.
 
 ## Updating KOReader later — read this before you try
 
-Because the installed copy is **debug-signed**, `adb install -r` of a newer
+Because the installed copy is debug-signed, `adb install -r` of a newer
 *official* APK fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Updating means
 the full cycle: uninstall, prepare the new version (manifest patch + sign),
-install. The uninstall takes KOReader's app data with it — its real settings and
+install. The uninstall takes KOReader's app data with it. Its real settings and
 reading positions are on `/storage/sdcard1`, so they survive, but anything kept
 in `/data/data/org.koreader.launcher` does not.
-
-That is the price of the HOME category, and it is worth knowing before you update
-in a hurry.

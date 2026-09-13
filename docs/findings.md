@@ -23,19 +23,19 @@ Partitions (`/proc/partitions`, cross-checked against the recovery fstab):
 
 ## 1. Patching `ro.debuggable` is not enough — `adbd` must be patched in the binary
 
-The obvious approach — set `ro.debuggable=1`/`ro.secure=0` in the ramdisk's
-`default.prop` and expect `adb root` — **does nothing**. The vendor compiled
-`adbd` without `ALLOW_ADBD_ROOT`, so the authorization branch is not simply
-gated on those properties; adbd drops privileges unconditionally.
+The obvious approach is to set `ro.debuggable=1` and `ro.secure=0` in the
+ramdisk's `default.prop` and expect `adb root`. It does nothing. The vendor
+compiled `adbd` without `ALLOW_ADBD_ROOT`, so the authorization branch is not
+simply gated on those properties. adbd drops privileges unconditionally.
 
 The fix is to NOP out two instruction sequences inside `sbin/adbd`:
 
-- the `setgroups`/`setgid`/`setuid` block — 24 bytes → 12 Thumb NOPs (`00 bf`)
-- `prctl(PR_CAPBSET_DROP)` — 4 bytes → 2 NOPs
+- the `setgroups`/`setgid`/`setuid` block: 24 bytes → 12 Thumb NOPs (`00 bf`)
+- `prctl(PR_CAPBSET_DROP)`: 4 bytes → 2 NOPs
 
 The result is byte-identical (`md5 98bbfe2462b221eedb944f72315df789`) to the
-patched `adbd` in the community root image, which is a genuinely useful
-independent check. Stock `adbd` is identical from 14.1.0 through 16.2.0
+patched `adbd` in the community root image, which is a useful independent check.
+Stock `adbd` is identical from 14.1.0 through 16.2.0
 (`md5 1d23e203eba05102e6cb642a117b8d64`), so the same patch applies across the
 whole firmware range.
 
@@ -45,29 +45,25 @@ whole firmware range.
 ## 2. The kernel must be copied byte-for-byte
 
 This model shipped with at least three different touch controllers (Cypress
-`cyttsp5_mt`, STMicro `fts`, Elan). Their drivers are built **into the kernel**,
-not loaded as modules — so booting a kernel from a different variant is exactly
-what kills the touchscreen. `build-rooted-boot.sh` copies the kernel through
-untouched and changes only the ramdisk.
+`cyttsp5_mt`, STMicro `fts`, Elan). Their drivers are built into the kernel, not
+loaded as modules, so booting a kernel from a different variant is what kills the
+touchscreen. `build-rooted-boot.sh` copies the kernel through untouched and
+changes only the ramdisk.
 
 ## 3. Fastboot: the 5-second window, and what actually works
 
-- **`adb reboot bootloader` is a no-op.** The vendor kernel maps only
-  `"download"`, `"recovery"` and `"fastboot"`. Use **`adb reboot fastboot`**
-  (confirmed working).
-- **The bootloader accepts a fastboot command for only ~5 seconds** after
-  entering fastboot mode. So *arm the fastboot command first* — start it and let
-  it block on `< waiting for any device >` — and only then trigger the device.
-  Reversing that order is the single most common cause of "fastboot sees
-  nothing".
-- The fastboot gadget identifies as **`18d1:0d02`**, manufacturer string
-  **"Freescale"**. That is fastboot, not the SoC ROM recovery mode
-  (`15a2:0063`) — do not walk away from a "Freescale" device assuming it is
-  something else.
-- Physical entry: power fully off → USB connected → hold POWER **continuously
-  ~30 s** (`ntx_wait_powerkey(30,1,1)`) — but with a fastboot command already
-  waiting.
-- `fastboot getvar` is **not implemented** (`unknown var`), so you cannot query
+- `adb reboot bootloader` is a no-op. The vendor kernel maps only `"download"`,
+  `"recovery"` and `"fastboot"`. Use `adb reboot fastboot` (confirmed working).
+- The bootloader accepts a fastboot command for only ~5 seconds after entering
+  fastboot mode. Arm the fastboot command first: start it, let it block on
+  `< waiting for any device >`, and only then trigger the device. Reversing that
+  order is the most common cause of "fastboot sees nothing".
+- The fastboot gadget identifies as `18d1:0d02`, manufacturer string "Freescale".
+  That is fastboot, not the SoC ROM recovery mode (`15a2:0063`). Do not walk away
+  from a "Freescale" device assuming it is something else.
+- Physical entry: power fully off, USB connected, hold POWER continuously for
+  ~30 s (`ntx_wait_powerkey(30,1,1)`), with a fastboot command already waiting.
+- `fastboot getvar` is not implemented (`unknown var`), so you cannot query
   partition sizes from the bootloader. The `version` var returns `0.5`.
 
 ### 3a. 352 MiB download cap — why a full `/system` image will not flash
@@ -81,25 +77,25 @@ if (g_fastboot_datalen > CONFIG_FASTBOOT_TRANSFER_BUF_SIZE) {
         DBG_ERR("Download too much data");   /* -> sends "FAIL" */
 ```
 
-An image over 369,098,752 bytes is rejected **instantly** —
+An image over 369,098,752 bytes is rejected immediately:
 `Sending 'system' (393208 KB) FAILED (remote: '')` in 0.048 s, before any
-transfer. It is a size rejection, **not** a missing partition: `fastboot flash
-boot` with a 4.5 MB image returns `OKAY` on the same bootloader.
+transfer. It is a size rejection, not a missing partition. `fastboot flash boot`
+with a 4.5 MB image returns `OKAY` on the same bootloader.
 
-There is **no sparse-image support** in this U-Boot — nothing matching `sparse`
-exists in its fastboot code. Feeding it an Android sparse image would write the
+There is no sparse-image support in this U-Boot: nothing matching `sparse` exists
+in its fastboot code. Feeding it an Android sparse image would write the
 container raw and destroy the partition. Do not try it.
 
 Fix: shrink the filesystem (`scripts/50-make-flashable-image.sh`). A filesystem
-smaller than its partition is legal; the tail is simply unused.
+smaller than its partition is legal. The tail is simply unused.
 
 ### 3b. `fastboot flash` writes; it does not erase
 
 The eMMC path is a plain `mmc write` of exactly the image length at the
 partition start, and `fastboot erase` is not implemented for eMMC
-(`"Not support erase command for EMMC"`). Consequence: flashing a small image to
-a partition leaves the tail of the old content untouched — harmless, and it means
-flashing a byte-identical image is a genuine no-op.
+(`"Not support erase command for EMMC"`). So flashing a small image to a partition
+leaves the tail of the old content untouched. That is harmless, and flashing a
+byte-identical image is a genuine no-op.
 
 ## 4. KitKat reuses cached APK signatures — if and only if the mtime matches
 
@@ -111,65 +107,64 @@ codePath.equals(...) && timeStamp == lastModified() && signatures != null
 
 So a system APK whose JAR signature has gone stale still loads, as long as its
 `lastModified()` still equals the cached timestamp. This is what makes editing
-`framework-res.apk` possible without Telekom's signing key — and it is fragile:
+`framework-res.apk` possible without Telekom's signing key. It is also fragile:
 change the mtime and PMS re-verifies, the signature fails, and the framework
 breaks. Always restore the mtime (`busybox touch -r` against a `cp -p` copy).
 
-Note this cuts both ways — see the odex trap below, where the same
-timestamp-based caching works *against* you.
+This cuts both ways. See the odex trap below, where the same timestamp-based
+caching works *against* you.
 
 ## 5. The `/data/app` update trap (and why "installed" is ambiguous)
 
 Because the base package is a *system* app, PMS permits any same-signature update
-with a **strictly higher `versionCode`** to install into `/data/app` **with no
-privileges at all** — a plain `adb install -r` from a uid-2000 shell.
+with a **strictly higher `versionCode`** to install into `/data/app` with no
+privileges at all: a plain `adb install -r` from a uid-2000 shell.
 
-That is convenient for iterating and silently wrong for durability: `pm path`
+That is convenient for iterating and silently wrong for durability. `pm path`
 then resolves to `/data/app`, and a factory reset reverts to whatever stale build
 lives in `/system/app`.
 
-The same rule seen from the other side: `new version 1 better than installed 1`
-is PMS rejecting an **equal** versionCode, not a signature or permission problem.
+The same rule from the other side: `new version 1 better than installed 1` is PMS
+rejecting an equal versionCode, not a signature or permission problem.
 
 **After any change, check `pm path`. If it says `/data/app`, it is not durable.**
-And remember those libs must live in `/data/app-lib/<name>` for native code to
-load — so for apps with native libraries, "durable" is not achievable by
-relocation at all (see §7).
+And those libs must live in `/data/app-lib/<name>` for native code to load, so for
+apps with native libraries, "durable" is not achievable by relocation at all
+(see §7).
 
 ## 6. The stale-odex trap
 
 After replacing a system APK in place, delete
 `/data/dalvik-cache/system@app@<Name>.apk@classes.dex`.
 
-KitKat decides whether a cached dex is current from the APK's **mtime and size**,
-and `adb push` carries the *build machine's* mtime. So a swapped APK can keep
-running the old code. The tell-tale symptom is nasty: **`versionCode` reads
-correctly from the manifest while the screen shows old behaviour.** Deleting the
-file forces a re-dexopt at boot.
+KitKat decides whether a cached dex is current from the APK's mtime and size, and
+`adb push` carries the *build machine's* mtime. So a swapped APK can keep running
+the old code. The symptom is nasty: `versionCode` reads correctly from the
+manifest while the screen shows old behaviour. Deleting the file forces a
+re-dexopt at boot.
 
 ## 7. `NativeActivity` resolves libraries through `nativeLibraryDir` only
 
-**This is the one that broke KOReader.** Moving its APK to `/system/app` made it
+This is the one that broke KOReader. Moving its APK to `/system/app` made it
 crash on every launch with:
 
 ```
 java.lang.IllegalArgumentException: Unable to find native library: luajit-launcher
 ```
 
-KOReader's `MainActivity` is a `NativeActivity`. Unlike `System.loadLibrary`
-(which falls back to the linker's default path including `/system/lib`),
-`NativeActivity` loads `<nativeLibraryDir>/lib<name>.so` by **absolute path, with
-no fallback**. And on this build `nativeLibraryDir` is `/data/app-lib/<name>` for
-**every** package.
+KOReader's `MainActivity` is a `NativeActivity`. Unlike `System.loadLibrary`,
+which falls back to the linker's default path including `/system/lib`,
+`NativeActivity` loads `<nativeLibraryDir>/lib<name>.so` by absolute path with no
+fallback. And on this build `nativeLibraryDir` is `/data/app-lib/<name>` for
+every package.
 
 ![KOReader's own crash report after the failed relocation](images/nativeactivity-crash.png)
 
-*KOReader catches its own crashes and displays the log — which is how the real
+*KOReader catches its own crashes and displays the log. That is how the real
 cause was found after logcat had already rotated. A screenshot read the exception
 straight off the panel.*
 
-The log in that screenshot proves both loading mechanisms side by side, which is
-the clearest evidence for this whole section:
+The log in that screenshot proves both loading mechanisms side by side:
 
 ```
 I/MainActivity: loading libluajit-launcher.so 0x41137e80
@@ -179,13 +174,13 @@ D/dalvikvm: No JNI_OnLoad found in /system/lib/libluajit.so
 java.lang.IllegalArgumentException: Unable to find native library: luajit-launcher   <- NOT FOUND
 ```
 
-So the Java-side `System.loadLibrary` call **succeeded** — the linker's default
-search path did include `/system/lib` and it loaded the library from there. The
-failure came afterwards, from `NativeActivity`'s own absolute-path load against
-`nativeLibraryDir`. Copying libraries into `/system/lib` therefore cannot fix
-this, no matter how they are named or permissioned.
+So the Java-side `System.loadLibrary` call succeeded. The linker's default search
+path did include `/system/lib`, and it loaded the library from there. The failure
+came afterwards, from `NativeActivity`'s own absolute-path load against
+`nativeLibraryDir`. Copying libraries into `/system/lib` cannot fix this, no
+matter how they are named or permissioned.
 
-Evidence that this is a property of the build, not of one app — every package,
+Evidence that this is a property of the build and not of one app: every package,
 including pristine system APKs with no `/data` history:
 
 ```
@@ -195,22 +190,21 @@ com.android.keyguard   /system/priv-app/Keyguard.apk    -> /data/app-lib/Keyguar
 ntx.PowerEnhance       /system/app/PowerEnhance.apk     -> /data/app-lib/PowerEnhance
 ```
 
-And **this build does not populate `/data/app-lib` for system apps**.
+And this build does not populate `/data/app-lib` for system apps.
 `PowerEnhance.apk` ships `lib/armeabi-v7a/libepd.so`, yet
-`/data/app-lib/PowerEnhance` does not exist — its libraries are found in
+`/data/app-lib/PowerEnhance` does not exist; its libraries are found in
 `/system/lib`. `SystemUI.apk` ships no libraries at all and still reports a
-`/data/app-lib` path, which shows the path is assigned unconditionally.
+`/data/app-lib` path. That shows the path is assigned unconditionally.
 
-**Rules that follow:**
+Rules that follow:
 
-- Relocating an APK into `/system` is only safe for **pure-Java** apps. The
-  helper is pure Java, which is why the same trick worked for it and destroyed
-  KOReader.
-- Putting a `NativeActivity` app's libraries in `/system/lib` does **not** help.
+- Relocating an APK into `/system` is only safe for pure-Java apps. The helper is
+  pure Java, which is why the same trick worked for it and destroyed KOReader.
+- Putting a `NativeActivity` app's libraries in `/system/lib` does not help.
 - A `NativeActivity` app can only be made durable by making
-  `/data/app-lib/<name>` exist at every boot — which requires a boot-ramdisk
-  init hook and therefore a **flashed** boot image. Not worth it when restoring
-  from a PC takes one command.
+  `/data/app-lib/<name>` exist at every boot, which requires a boot-ramdisk init
+  hook and therefore a flashed boot image. Not worth it when restoring from a PC
+  takes one command.
 
 ## 8. The permission grant logic ignores the `system` flag
 
@@ -222,15 +216,15 @@ W/PackageManager: Not granting permission android.permission.MOUNT_UNMOUNT_FILES
     to package org.tolino.umshelper (protectionLevel=18 flags=0x8be45)
 ```
 
-`protectionLevel` is a bitfield; clearing it to `0` makes the permission
-`normal`. That is the entire framework patch. Trade-off: any app can then request
-it.
+`protectionLevel` is a bitfield. Clearing it to `0` makes the permission `normal`,
+and that is the entire framework patch. The trade-off is that any app can then
+request it.
 
 ## 9. `adb` quirks on this firmware
 
 ### 9a. `adb shell` NEVER propagates the exit code — this is the big one
 
-The vendor adbd returns **0 for every command**, successful or not:
+The vendor adbd returns 0 for every command, successful or not:
 
 ```console
 $ adb shell "exit 7" ; echo $?      -> 0
@@ -238,12 +232,12 @@ $ adb shell "false"  ; echo $?      -> 0
 $ adb shell "grep -q zzz /system/etc/hosts" ; echo $?   -> 0
 ```
 
-So `adb shell '<cmd>' && ok` and `adb shell '<cmd>' || die` are **both dead
-code**: the first always fires, the second never does. This was found the hard
-way, by running the scripts against a freshly restored stock device — a debloat
-script cheerfully reported `ok /system back to ro` and `ok already present` (for
-a hosts entry that was not there) while both commands had actually failed. Worse,
-`31-patch-framework.sh` depends on aborting if the mtime restore fails; that
+So `adb shell '<cmd>' && ok` and `adb shell '<cmd>' || die` are both dead code.
+The first always fires, the second never does. This was found the hard way, by
+running the scripts against a freshly restored stock device. A debloat script
+cheerfully reported `ok /system back to ro` and `ok already present` for a hosts
+entry that was not there, while both commands had actually failed. Worse,
+`31-patch-framework.sh` depends on aborting if the mtime restore fails. That
 guard would never have fired, and a missed mtime means PMS re-verifies a stale
 signature and the framework breaks.
 
@@ -255,41 +249,41 @@ sh_ok  "<cmd>"   # just the status
 system_is_rw     # checks /proc/mounts rather than trusting `mount`
 ```
 
-`sh_*` appends `; echo __RC=$?` and parses the marker back out of the output.
-**Use `sh_ok` for anything you branch on**, and plain `adb_ shell` only when you
-want the output and do not care about the status. Output-based tests
+`sh_*` appends `; echo __RC=$?` and parses the marker back out of the output. Use
+`sh_ok` for anything you branch on, and plain `adb_ shell` only when you want the
+output and do not care about the status. Output-based tests
 (`[ -n "$(adb shell ...)" ]`) work too and are sometimes simpler.
 
 ### 9b. Other device-shell gaps that bite
 
-- **No `printf`.** `adb shell "printf ..."` gives `printf: not found`, rc=127.
-  `echo` is an mksh builtin and works; so does `busybox printf`. A script that
-  appends a line with `printf` silently appends nothing — which is exactly how
-  the hosts blackhole got skipped on the first validation run, and the fixed
-  version then failed loudly instead.
-- **`ls` does not support `--time-style`.** It prints `ls: Unknown option '--'.
+- No `printf`. `adb shell "printf ..."` gives `printf: not found`, rc=127. `echo`
+  is an mksh builtin and works, and so does `busybox printf`. A script that
+  appends a line with `printf` silently appends nothing. That is how the hosts
+  blackhole got skipped on the first validation run, and the fixed version then
+  failed loudly instead.
+- `ls` does not support `--time-style`. It prints `ls: Unknown option '--'.
   Aborting.` and produces empty output, so parsing `ls -l` for a timestamp
   silently yields an empty string. Use `busybox stat -c %Y <file>` for an epoch.
-- **`adb exec-out` does not work** — fails with `error: closed`. Use
-  `adb shell` for text and `adb pull` for binary.
-- **`adb pull` reads block devices correctly** (`adb pull /dev/block/mmcblk0p5`),
+- `adb exec-out` does not work. It fails with `error: closed`. Use `adb shell`
+  for text and `adb pull` for binary.
+- `adb pull` reads block devices correctly (`adb pull /dev/block/mmcblk0p5`),
   which is how the backups are taken. No TWRP required.
-- **Missing device tools:** `printf`, `which`, `uname`, `sha256sum`, `head`,
-  `wc`. Present: `md5`, `echo` (builtin), `busybox`, `gzip`, `dd`, `cpio`. Do not
-  build scripts on the assumption of a normal userland — and note that a failed
-  `which` looks like "tool absent" even when the tool exists.
-- **`/dev/bus/usb` may not exist inside a container/sandbox**, so `fastboot`
-  cannot reach the device from there even though `lsusb` works. `adb` can, via a
-  host adb server (`ADB_SERVER_SOCKET`). Partition pulls still work because they
-  go over that adb connection.
+- Missing device tools: `printf`, `which`, `uname`, `sha256sum`, `head`, `wc`.
+  Present: `md5`, `echo` (builtin), `busybox`, `gzip`, `dd`, `cpio`. Do not build
+  scripts on the assumption of a normal userland, and note that a failed `which`
+  looks like "tool absent" even when the tool exists.
+- `/dev/bus/usb` may not exist inside a container/sandbox, so `fastboot` cannot
+  reach the device from there even though `lsusb` works. `adb` can, via a host adb
+  server (`ADB_SERVER_SOCKET`). Partition pulls still work because they go over
+  that adb connection.
 
 ### 9c. Anything pushed into `/system/app` is scanned immediately
 
 PMS runs a `FileObserver` over `/system/app`, so a file appearing there is picked
-up and dexopted at once — no reboot required. That is why the helper script finds
-a `/data/dalvik-cache/system@app@UmsHelper.apk@classes.dex` moments after pushing
-the APK, and correctly deletes it. Pushing a *replacement* over an existing
-system APK is exactly the stale-odex trap in §6.
+up and dexopted at once. No reboot is required. That is why the helper script
+finds a `/data/dalvik-cache/system@app@UmsHelper.apk@classes.dex` moments after
+pushing the APK, and correctly deletes it. Pushing a *replacement* over an
+existing system APK is the stale-odex trap in §6.
 
 ## 10. USB mass storage takes the volume away from Android
 
@@ -300,18 +294,16 @@ java.lang.SecurityException: Invalid mkdirs path:
     /mnt/media_rw/sdcard1/Android/data/org.koreader.launcher/files/
 ```
 
-So the helper must **stop KOReader before** sharing the volume, show its own
-static screen while shared (the screen must not touch storage), and only relaunch
-KOReader once the volume is genuinely back — checking both `!isVolumeShared()`
-and the mount state, not just sleeping.
+So the helper must stop KOReader before sharing the volume, show its own static
+screen while shared (the screen must not touch storage), and only relaunch
+KOReader once the volume is back, checking both `!isVolumeShared()` and the mount
+state rather than just sleeping.
 
-Two related traps:
-
-- **Never broadcast a sticky `USB_STATE`.** It replays at boot, which shares
-  storage before KOReader can start and produces a crash loop. Use the explicit
+- Never broadcast a sticky `USB_STATE`. It replays at boot, which shares storage
+  before KOReader can start and produces a crash loop. Use the explicit
   `UMS_CONNECTED` / `UMS_DISCONNECTED` actions only.
-- **`StorageManager.setUsbMassStorageEnabled` does not exist** on this build —
-  calling it throws `NoSuchMethodException`. Use the binder call through
+- `StorageManager.setUsbMassStorageEnabled` does not exist on this build. Calling
+  it throws `NoSuchMethodException`. Use the binder call through
   `ServiceManager.getService("mount")` and `IMountService$Stub.asInterface`.
 
 ## 11. What a factory reset actually wipes
@@ -326,12 +318,12 @@ From the stock recovery binary's strings, the wipe paths are:
 
 So `wipe_data` formats p7 and `wipe_cache` formats p6. The user partition p4
 (your books, and KOReader's own `settings.reader.lua`) is mounted in recovery as
-`/mnt/media_rw/sdcard1` and is **not** a wipe target. KitKat also exposes "Erase
-SD card" as a separate, off-by-default option.
+`/mnt/media_rw/sdcard1` and is not a wipe target. KitKat also exposes "Erase SD
+card" as a separate, off-by-default option.
 
 Consequence: after a factory reset your library survives, `/system` is untouched,
 and the only thing you must redo is reinstalling apps that lived in `/data`
-(KOReader) — reinstall from your HOME-patched APK, see koreader-as-home.md.
+(KOReader). Reinstall from your HOME-patched APK, see koreader-as-home.md.
 
 ## 12. What is deliberately left installed
 
@@ -339,10 +331,10 @@ and the only thing you must redo is reinstalling apps that lived in `/data`
 dialogs), `/system/bin/hw_check.sh` (selects the touch controller at boot),
 `ntx_hwconfig-static`, `epd_ctrl`, `powerdebug`, `libepd.so` / `libpower*.so`,
 `display_mode_fb*.conf`, `/system/usr/sleep/` and `/system/fonts`. These are
-proprietary but load-bearing — removing them risks the panel, power management or
+proprietary but load-bearing: removing them risks the panel, power management or
 suspend. The 34 MB of fonts is mostly Tolino reading fonts that nothing now uses,
 but there is no space pressure worth the risk.
 
-The sleep cover works at the **framework** level (`SW_LID` →
+The sleep cover works at the framework level (`SW_LID` →
 `notifyLidSwitchChanged`), not in the store app, so removing the store app does
-**not** break it.
+not break it.

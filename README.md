@@ -5,8 +5,8 @@ local-EPUB reader: remove the shop/login/DRM/telemetry app, keep the hardware
 working, and keep USB file transfer working without it.
 
 Everything here was developed and verified on a real device. Every non-obvious
-claim in these docs was tested rather than assumed — including several that
-turned out to contradict the obvious reading. The traps are written down in
+claim in these docs was tested rather than assumed, and several tests
+contradicted the obvious reading. The traps are written down in
 [`docs/findings.md`](docs/findings.md); **read that before you improvise.**
 
 ```
@@ -31,8 +31,8 @@ root                                 ->   still none (nothing is flashed)
 
 ## ⚠️ Read this first
 
-**This modifies `/system` on a device you own.** It is reversible — you take a
-full partition image first, and that image restores the device completely — but
+**This modifies `/system` on a device you own.** It is reversible: you take a
+full partition image first, and that image restores the device completely. But
 you can absolutely end up with a device that does not boot if you skip steps or
 run these scripts against the wrong firmware.
 
@@ -45,8 +45,7 @@ run these scripts against the wrong firmware.
   request `MOUNT_UNMOUNT_FILESYSTEMS`. On a single-purpose, sideload-only
   e-reader that is a reasonable trade. On a general-purpose device it is not.
 - This is written against **one specific firmware (16.2.0 / build 157800)**. The
-  scripts assert known checksums and refuse to run on anything else. That refusal
-  is a feature.
+  scripts assert known checksums and refuse to run on anything else.
 
 ---
 
@@ -56,7 +55,7 @@ No vendor binaries, because they are proprietary and large. You supply them:
 
 | You need | Where from |
 |---|---|
-| **A reader with its Debug menu enabled** (otherwise there is no adb — see below) | the reader itself: search page → `112358132fb` |
+| **A reader with its Debug menu enabled** (otherwise there is no adb; see below) | the reader itself: search page → `112358132fb` |
 | Official 16.2.0 firmware `update.zip` | `https://download.pageplace.de/ereader/16.2.0/OS44/update.zip` |
 | `adb`, `fastboot` | Android SDK platform-tools |
 | Android SDK build-tools + JDK 8+ | to build the helper |
@@ -72,7 +71,7 @@ The repo contains only original scripts and documentation (MIT).
 ## Before anything: the reader must offer adb
 
 **There is no adb until you enable the hidden Debug menu on the reader itself.**
-It is off by default, and a factory restore removes it again — the `adb` flag
+It is off by default, and a factory restore removes it again. The `adb` flag
 lives in `persist.sys.usb.config`, which is stored in `/data/property`, and a
 restore rewrites `/data`.
 
@@ -85,10 +84,11 @@ search:
 | 15.x | `1123581321` |
 | 14.x | `124816` |
 
-The menu pages with the on-screen buttons; page 3 installs APKs from the reader's
-storage root (which is itself a fallback for installing KOReader with no adb).
+You page through the menu with the on-screen buttons. Page 3 installs APKs from
+the reader's storage root, which is itself a fallback for installing KOReader
+with no adb.
 
-You can tell which side a problem is on without guessing — the USB product ID
+You can tell which side a problem is on without guessing. The USB product ID
 changes with the gadget composition:
 
 ```
@@ -121,7 +121,7 @@ scripts/20-root.sh boot
 # 4. back everything up WHILE ROOTED (this is the important step)
 scripts/10-backup.sh
 
-# 5. PREPARE AND INSTALL A LAUNCHER-CAPABLE KOReader - before step 6 deletes
+# 5. PREPARE AND INSTALL A LAUNCHER-CAPABLE KOReader: before step 6 deletes
 #    EPubProd.apk, the stock launcher. The OFFICIAL KOReader APK does NOT declare
 #    HOME, so installing it as-is leaves the device with no home app at all.
 #    25 downloads it, adds HOME + DEFAULT, rebuilds, signs and verifies:
@@ -143,9 +143,9 @@ scripts/00-check-device.sh
 Then, optionally, build a system image you can restore through fastboot alone.
 
 **Mind which image you feed it.** The backup from step 4 was taken *before* the
-changes, so it is the **pre-change (stock)** system. That is genuinely useful —
-it restores stock over fastboot without the recovery dance — but it is not your
-debloated result. To capture *that*, root again and take a second backup:
+changes, so it is the **pre-change (stock)** system. That is useful: it restores
+stock over fastboot without the recovery dance. But it is not your debloated
+result. To capture *that*, root again and take a second backup:
 
 ```bash
 scripts/20-root.sh boot                            # root again
@@ -153,11 +153,10 @@ scripts/10-backup.sh work/backups-after            # the debloated state
 scripts/50-make-flashable-image.sh work/backups-after/system-partition-p5.img
 ```
 
-Free space in the result depends entirely on the source image, because the
-script shrinks to the largest filesystem that fits the 352 MiB fastboot cap: a
-**stock** system uses ~318 MB and ends up with only ~19 MiB free, while a
-**debloated** one finishes with ~81 MiB. Read the number it prints before
-trusting the image.
+Free space in the result depends entirely on the source image. The script shrinks
+to the largest filesystem that fits the 352 MiB fastboot cap, so a **stock**
+system uses ~318 MB and ends up with only ~19 MiB free, while a **debloated** one
+finishes with ~81 MiB. Read the number it prints before trusting the image.
 
 ---
 
@@ -165,13 +164,13 @@ trusting the image.
 
 **1. Root without writing anything.** `fastboot boot` loads a patched boot image
 into RAM and discards it on reboot, so the boot partition is never touched. The
-vendor `adbd` has to be NOP-patched in the *binary* — `ro.debuggable` alone does
-nothing, because it was built without `ALLOW_ADBD_ROOT`.
+vendor `adbd` has to be NOP-patched in the binary itself. Setting `ro.debuggable`
+alone does nothing, because it was built without `ALLOW_ADBD_ROOT`.
 
-**2. The system-level changes all live in `/system`** — remove the store stack,
+**2. The system-level changes all live in `/system`:** remove the store stack,
 flip one `protectionLevel` in `framework-res.apk` so the helper may hold
-`MOUNT_UNMOUNT_FILESYSTEMS`, install the helper. (KOReader stays an ordinary
-`/data` app; see point 3.)
+`MOUNT_UNMOUNT_FILESYSTEMS`, install the helper. KOReader stays an ordinary
+`/data` app; see point 3.
 
 **3. KOReader must be patched to be a launcher**, because the official APK
 declares no HOME category and point 2 deletes the stock launcher. That is what
@@ -181,8 +180,8 @@ declares no HOME category and point 2 deletes the stock launcher. That is what
 fit the bootloader's 352 MiB download cap, so it restores the device even when
 Android will not boot.
 
-**The reasoning behind every non-obvious decision — and the traps that cost real
-debugging time — is in [`docs/findings.md`](docs/findings.md). Read it before
+**The reasoning behind every non-obvious decision, and the traps that cost real
+debugging time, is in [`docs/findings.md`](docs/findings.md). Read it before
 improvising.** The other docs go deeper on one subject each:
 [`koreader-as-home.md`](docs/koreader-as-home.md),
 [`backup-restore.md`](docs/backup-restore.md),
@@ -203,8 +202,8 @@ improvising.** The other docs go deeper on one subject each:
 | Reinstall KOReader after a wipe | `adb install <your patched>.apk` — the official APK cannot be a launcher, see [`docs/koreader-as-home.md`](docs/koreader-as-home.md) |
 
 Details and the exact commands: [`docs/backup-restore.md`](docs/backup-restore.md).
-For a full return to stock — including an audit of exactly which partitions the
-official OTA writes on this hardware, and the adb-after-restore gotcha — see
+For a full return to stock, including an audit of which partitions the official
+OTA writes on this hardware and the adb-after-restore gotcha, see
 [`docs/factory-restore.md`](docs/factory-restore.md).
 
 ---
@@ -213,18 +212,18 @@ official OTA writes on this hardware, and the adb-after-restore gotcha — see
 
 - **One unreproduced display crash.** A single `surfaceflinger` SIGSEGV was seen
   during a boot that also ran a dexopt and enabled USB storage early. Two cold
-  boots — including one with those exact conditions — did not reproduce it. It
-  self-heals via a runtime restart in ~20 s. Treat it as a rare vendor flake; if
+  boots, including one with those exact conditions, did not reproduce it. It
+  self-heals via a runtime restart in ~20 s. Treat it as a rare vendor flake. If
   it recurs reliably, delay the helper's UMS enable at boot.
 - **KOReader is not wipe-durable, and cannot cheaply be.** It is a `/data` app,
   so a factory reset removes it. Restoring it means reinstalling your **patched**
-  APK - not the official one, which cannot be a launcher. Moving it to
-  `/system/app` **breaks it**: its `MainActivity` is a `NativeActivity`, which
-  resolves its native library through `nativeLibraryDir` — on this build always
-  `/data/app-lib/<name>` — and never falls back to `/system/lib`. See
+  APK, not the official one, which cannot be a launcher. Moving it to
+  `/system/app` **breaks it**: its `MainActivity` is a `NativeActivity`. It
+  resolves its native library through `nativeLibraryDir` (on this build always
+  `/data/app-lib/<name>`) and never falls back to `/system/lib`. See
   `docs/findings.md` §5.
 - **A factory reset does not touch your books.** The stock recovery's wipe path
-  formats `/data` and `/cache` only; the user partition (p4) is not a wipe
+  formats `/data` and `/cache` only. The user partition (p4) is not a wipe
   target. You will still need to reinstall KOReader into the emptied `/data`.
 - **A *flashed* shrunken image leaves 81 MiB free on `/system`**, against 121.7 MiB
   for the real thing. It only matters if you restore that way, and 81 MiB is ample
