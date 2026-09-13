@@ -50,29 +50,40 @@ info "installing $APK ($(stat -c%s "$APK") bytes)"
 # install into /system/app
 # ---------------------------------------------------------------------------
 step "installing into /system/app"
-adb_ shell "mount -o remount,rw /system" || die "could not remount /system rw"
+sh_ok "mount -o remount,rw /system" || die "could not remount /system rw"
+system_is_rw || die "/system is still not rw - refusing to continue"
 adb_ push "$APK" "$SYSTEM_APK" >/dev/null || die "push failed"
-adb_ shell "chown 0:0 '$SYSTEM_APK'; chmod 644 '$SYSTEM_APK'"
-ok "pushed to $SYSTEM_APK"
+sh_ok "chown 0:0 '$SYSTEM_APK'; chmod 644 '$SYSTEM_APK'"
+# Verify the write really landed, rather than trusting the commands above.
+pushed="$(adb_ shell "md5 '$SYSTEM_APK'" | tr -d '\r' | awk '{print $1}')"
+want="$(md5sum "$APK" | awk '{print $1}')"
+[ "$pushed" = "$want" ] || die "on-device md5 $pushed != local $want - the push did not take"
+ok "pushed to $SYSTEM_APK (md5 $pushed)"
 
 step "removing any /data/app update (the durability trap)"
-if adb_ shell "ls /data/app/ | grep -i umshelper" 2>/dev/null | grep -q .; then
-  adb_ shell "rm -f /data/app/org.tolino.umshelper-*.apk"
-  adb_ shell "rm -rf /data/app/org.tolino.umshelper-* /data/app-lib/org.tolino.umshelper-*"
+# Output-based test, deliberately: this adbd does not return exit codes.
+if [ -n "$(adb_ shell "ls /data/app/ 2>/dev/null | grep -i umshelper" | tr -d '\r')" ]; then
+  sh_ok "rm -f /data/app/org.tolino.umshelper-*.apk"
+  sh_ok "rm -rf /data/app/org.tolino.umshelper-* /data/app-lib/org.tolino.umshelper-*"
   ok "removed the /data/app copy"
 else
   ok "none present"
 fi
 
 step "clearing the stale odex (the mtime trap)"
-if adb_ shell "ls /data/dalvik-cache/ 2>/dev/null | grep -i umshelper" | grep -q .; then
-  adb_ shell "rm -f /data/dalvik-cache/*umshelper*"
+if [ -n "$(adb_ shell "ls /data/dalvik-cache/ 2>/dev/null | grep -i umshelper" | tr -d '\r')" ]; then
+  sh_ok "rm -f /data/dalvik-cache/*umshelper*"
   ok "deleted; it will be regenerated at boot from the new APK"
 else
   ok "none present"
 fi
 
-adb_ shell "mount -o remount,ro /system" && ok "/system back to ro"
+sh_ok "mount -o remount,ro /system" || true
+if system_is_rw; then
+  warn "/system still mounted rw (busy) - harmless, a reboot clears it"
+else
+  ok "/system back to ro"
+fi
 
 # ---------------------------------------------------------------------------
 # what must be true after the next boot

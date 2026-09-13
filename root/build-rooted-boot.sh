@@ -105,9 +105,18 @@ sed 's/^/    /' "$WORK/rd/default.prop"
 echo "== 5. repack ramdisk (root:root, newc) and restore symlink modes =="
 ( cd "$WORK/rd" && find . -mindepth 1 | LC_ALL=C sort | cpio -o -H newc --owner=root:root --reproducible 2>/dev/null | gzip -9 > "$WORK/ramdisk-new.gz" )
 python3 - "$WORK" <<'PY'
-# GNU cpio cannot record a symlink mode other than 0777 (Linux reports lstat
-# mode 0777 for symlinks); the stock ramdisk uses 0750. Restore the stock value
-# so the remaining differences are exactly the two files we intended to change.
+# Two normalisations, both against the STOCK cpio, so that the only remaining
+# differences are the two files we intended to change:
+#
+#  1. GNU cpio cannot record a symlink mode other than 0777 (Linux reports lstat
+#     mode 0777 for symlinks); the stock ramdisk uses 0750. Restore the stock
+#     value.
+#  2. Restore the stock mtime. This is what makes the build REPRODUCIBLE:
+#     python rewrites sbin/adbd and `sed -i` rewrites default.prop, so both get
+#     the CURRENT time, which lands in the cpio header and changes on every
+#     build (and shifts the whole gzip stream with it). Normalising to the
+#     stock timestamp keeps the output deterministic AND keeps the verifier's
+#     "differs only in default.prop and sbin/adbd" check meaningful.
 import gzip, sys
 work = sys.argv[1]
 stock = open(work+'/ramdisk.cpio','rb').read()
@@ -119,16 +128,29 @@ def walk(d):
         size, ns = f(6), f(11)
         nm = d[i+110:i+110+ns-1].decode('utf-8','replace')
         hdr = (110 + ns + 3)//4*4
-        out.append((nm, i, f(1)))
+        # f(1)=mode (field 2), f(5)=mtime (field 6)
+        out.append((nm, i, f(1), f(5)))
         i += hdr + (size+3)//4*4
     return out
-sm = {n: m for n, _, m in walk(stock)}
-fixed = 0
-for n, off, m in walk(bytes(new)):
-    if n in sm and sm[n] != m and (sm[n] & 0o170000) == 0o120000:
-        new[off+6+8:off+6+16] = ('%08x' % sm[n]).encode(); fixed += 1
+sm = {n: (m, t) for n, _, m, t in walk(stock)}
+fixed = mtimes = 0
+for n, off, m, t in walk(bytes(new)):
+    if n not in sm:
+        continue
+    smode, smtime = sm[n]
+    if smode != m and (smode & 0o170000) == 0o120000:
+        new[off+6+8:off+6+16] = ('%08x' % smode).encode(); fixed += 1
+    if smtime != t:
+        new[off+6+8*5:off+6+8*6] = ('%08x' % smtime).encode(); mtimes += 1
 open(work+'/ramdisk-new.cpio','wb').write(bytes(new))
-gzip.open(work+'/ramdisk-new.gz','wb',9).write(bytes(new))
+# Deterministic gzip: mtime=0 and no stored filename. Plain `gzip.open(...,9)`
+# stamps the CURRENT time into the header, which makes the whole boot image
+# differ on every build even though the contents are byte-identical. That is
+# why an earlier build produced sha256 865c9443... and a later one 6b17c56d...
+with open(work+'/ramdisk-new.gz','wb') as fh:
+    with gzip.GzipFile(filename='', mode='wb', compresslevel=9,
+                       fileobj=fh, mtime=0) as gz:
+        gz.write(bytes(new))
 print(f'  symlink modes restored: {fixed}')
 PY
 

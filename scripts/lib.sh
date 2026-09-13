@@ -73,6 +73,38 @@ fb_() {
   if [ -n "$SERIAL" ]; then "$FASTBOOT" -s "$SERIAL" "$@"; else "$FASTBOOT" "$@"; fi
 }
 
+# ---------------------------------------------------------------------------
+# Remote exit codes - READ THIS BEFORE WRITING ANY CHECK
+#
+# The vendor adbd on this firmware does NOT propagate exit codes through
+# `adb shell`: it returns 0 even for a command that failed.
+#
+#     $ adb shell "exit 7" ; echo $?      -> 0
+#     $ adb shell "false"  ; echo $?      -> 0
+#
+# So `adb shell '<cmd>' && ok` and `adb shell '<cmd>' || die` are BOTH dead
+# code - the first always fires, the second never does. That silently defeats
+# safety checks, such as "did the mtime restore actually succeed?".
+#
+# Use sh_ok/sh_out for anything whose success you branch on, and plain
+# `adb_ shell` only when you want the output and do not care about the status.
+# ---------------------------------------------------------------------------
+sh_out() {                       # print remote stdout, return the REAL status
+  local out rc
+  out="$(adb_ shell "$1; echo __RC=\$?" 2>/dev/null | tr -d '\r')"
+  rc="$(printf '%s\n' "$out" | sed -n 's/^__RC=//p' | tail -n1)"
+  printf '%s\n' "$out" | sed '/^__RC=/d'
+  [ "${rc:-1}" = "0" ]
+}
+sh_ok() { sh_out "$1" >/dev/null 2>&1; }   # just the status
+
+# Is /system mounted read-write? Reads /proc/mounts rather than trusting the
+# `mount` command's exit status - a remount can legitimately fail with
+# "Device or resource busy" while Android is running from /system.
+system_is_rw() {
+  adb_ shell "grep ' /system ' /proc/mounts" 2>/dev/null | tr -d '\r' | grep -q ' rw,\| rw '
+}
+
 require_adb() {
   need_cmd "$ADB"
   [ "$(adb_ get-state 2>/dev/null)" = "device" ] \
@@ -111,7 +143,6 @@ check_device() {
     "$(adb_ shell getprop ro.debuggable 2>/dev/null | tr -d '\r')"
 
   [ "$dev" = "$WANT_PRODUCT" ] || die "expected ro.product.device=$WANT_PRODUCT, got '$dev'"
-  adb_ shell "getprop ro.hardware" >/dev/null 2>&1 || true
   ok "device looks like a Tolino Shine 3"
 }
 

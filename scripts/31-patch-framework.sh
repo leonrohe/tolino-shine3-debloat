@@ -94,28 +94,52 @@ fi
 # install in place, preserving the timestamp
 # ---------------------------------------------------------------------------
 step "installing"
-adb_ shell "mount -o remount,rw /system" || die "could not remount /system rw"
+sh_ok "mount -o remount,rw /system" || die "could not remount /system rw"
+system_is_rw || die "/system is still not rw - refusing to continue"
 
 # Keep a copy on /cache with its timestamps, so we can restore the original
 # mtime after overwriting the file. `cp -p` preserves it.
-adb_ shell "cp -p /system/framework/framework-res.apk /cache/fwres.mtime-ref"
-before="$(adb_ shell "ls -l --time-style=+%Y-%m-%dT%H:%M:%S /system/framework/framework-res.apk" | tr -d '\r' | awk '{print $6}')"
-info "original mtime: $before"
+sh_ok "cp -p /system/framework/framework-res.apk /cache/fwres.mtime-ref" \
+  || die "could not stage the mtime reference in /cache"
+# Read the mtime as a plain epoch with busybox. Do NOT use
+# `ls -l --time-style=...`: this device's toolbox ls rejects the option
+# ("Unknown option '--'"), which silently yields an empty string.
+mtime_of() { adb_ shell "busybox stat -c %Y $1" 2>/dev/null | tr -d '\r'; }
+FW=/system/framework/framework-res.apk
+
+before="$(mtime_of "$FW")"
+case "$before" in
+  ''|*[!0-9]*) die "could not read the original mtime (got '$before') - aborting before any write" ;;
+esac
+info "original mtime: $before epoch ($(adb_ shell "busybox date -d @$before" 2>/dev/null | tr -d '\r'))"
 
 adb_ push "$INSTALL" /system/framework/framework-res.apk >/dev/null || die "push failed"
-adb_ shell "chown 0:0 /system/framework/framework-res.apk; chmod 644 /system/framework/framework-res.apk"
-adb_ shell "busybox touch -r /cache/fwres.mtime-ref /system/framework/framework-res.apk" \
+sh_ok "chown 0:0 /system/framework/framework-res.apk; chmod 644 /system/framework/framework-res.apk"
+
+# THIS is the check that matters most in the whole repo. If the mtime is not
+# restored, PackageManagerService re-verifies the now-stale JAR signature and
+# the framework breaks. It must actually abort.
+# NOTE: `adb shell ... || die` does NOT work on this adbd (it always returns 0),
+# which is why this uses sh_ok.
+sh_ok "busybox touch -r /cache/fwres.mtime-ref /system/framework/framework-res.apk" \
   || die "could not restore the mtime - aborting before reboot (PMS would re-verify the signature)"
 
-after="$(adb_ shell "ls -l --time-style=+%Y-%m-%dT%H:%M:%S /system/framework/framework-res.apk" | tr -d '\r' | awk '{print $6}')"
+after="$(mtime_of "$FW")"
 [ "$before" = "$after" ] || die "mtime changed ($before -> $after). Signature cache will miss."
-ok "mtime preserved: $after"
+ok "mtime preserved: $after epoch"
 
 dev_md5="$(adb_ shell "md5 /system/framework/framework-res.apk" | tr -d '\r' | awk '{print $1}')"
+[ "$dev_md5" = "$PATCHED_MD5" ] \
+  || die "on-device md5 is $dev_md5, expected $PATCHED_MD5 - the write did not take"
 ok "on-device md5: $dev_md5"
 
-adb_ shell "rm -f /cache/fwres.mtime-ref"
-adb_ shell "mount -o remount,ro /system" && ok "/system back to ro"
+sh_ok "rm -f /cache/fwres.mtime-ref"
+sh_ok "mount -o remount,ro /system" || true
+if system_is_rw; then
+  warn "/system still mounted rw (busy) - harmless, a reboot clears it"
+else
+  ok "/system back to ro"
+fi
 
 cat <<EOF
 

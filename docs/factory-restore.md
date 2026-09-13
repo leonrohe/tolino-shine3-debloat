@@ -99,6 +99,28 @@ gated behind `$1 = "wipe"` / `"wipe-hotel"`, which the OTA never passes — so a
 normal restore does **not** run them. (The `wipe-hotel` branch is the one that
 preserves `/sdcard/Books`.)
 
+> ⚠️ **There is a third branch that is not gated that way, and it deletes
+> everything in `/sdcard`:**
+>
+> ```sh
+> if [ "$1" = "emergency" ] ; then
+>     ls -a /sdcard | while read line
+>     do
+>         busybox rm -rf "/sdcard/${line}"     # Books/ included
+>     done
+> fi
+> ```
+>
+> It is **unreachable through the normal OTA flow**, because `updater-script`
+> invokes `upgrade.sh` with no arguments (line 142), so `$1` is never
+> `"emergency"`. It was verified empirically on a real factory restore: after the
+> restore the user partition still held `Books/` (4 EPUBs plus KOReader `.sdr`
+> sidecars), `koreader/settings.reader.lua` and everything else, and the volume
+> still carried its `tolino` label.
+>
+> But do not rely on that by accident. **Back your books up before any restore**,
+> and do not go looking for a way to pass `emergency` to that script.
+
 ## Doing it
 
 1. **Back up first** (`scripts/10-backup.sh`) and keep a **flashable** system

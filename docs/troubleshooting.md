@@ -36,6 +36,30 @@ udev rules) can fix a device that is not offering adb in the first place.
 
 ---
 
+### A script prints `ok` but the change clearly did not happen
+
+**Cause:** on this firmware `adb shell` returns **0 for every remote command**,
+even one that failed. Any check written as `adb shell '<cmd>' && ok` always
+fires, and `adb shell '<cmd>' || die` never does. Both were present in an earlier
+version of these scripts, which is how a hosts-file edit was reported as
+`ok already present` on a freshly formatted `/system` that did not contain it.
+
+**Fix:** the scripts now use `sh_ok` / `sh_out` from `lib.sh`, which append
+`; echo __RC=$?` and read the real status back out of the output. If you add a
+check of your own, do the same — or test the *output*:
+
+```bash
+sh_ok "grep -q foo /system/etc/hosts" || die "not there"
+[ -n "$(adb shell "ls /x 2>/dev/null")" ] || die "no such file"
+```
+
+Two related traps while you are here: the device shell has **no `printf`**
+(use `echo` or `busybox printf`), and its `ls` **rejects `--time-style`** (use
+`busybox stat -c %Y` for a timestamp). Both fail in ways that look like success
+if you only check exit codes.
+
+---
+
 ### `fastboot devices` shows nothing, or it waits forever
 
 **Cause:** the bootloader only listens for about **5 seconds** after entering

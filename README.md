@@ -137,11 +137,24 @@ adb reboot && sleep 45
 scripts/00-check-device.sh
 ```
 
-Then, optionally, build a system image you can restore through fastboot alone:
+Then, optionally, build a system image you can restore through fastboot alone.
+
+**Mind which image you feed it.** The backup from step 4 was taken *before* the
+changes, so it is the **pre-change (stock)** system. That is genuinely useful —
+it restores stock over fastboot without the recovery dance — but it is not your
+debloated result. To capture *that*, root again and take a second backup:
 
 ```bash
-scripts/50-make-flashable-image.sh work/backups/system-partition-p5.img
+scripts/20-root.sh boot                            # root again
+scripts/10-backup.sh work/backups-after            # the debloated state
+scripts/50-make-flashable-image.sh work/backups-after/system-partition-p5.img
 ```
+
+Free space in the result depends entirely on the source image, because the
+script shrinks to the largest filesystem that fits the 352 MiB fastboot cap: a
+**stock** system uses ~318 MB and ends up with only ~19 MiB free, while a
+**debloated** one finishes with ~81 MiB. Read the number it prints before
+trusting the image.
 
 ---
 

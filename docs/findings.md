@@ -228,18 +228,68 @@ it.
 
 ## 9. `adb` quirks on this firmware
 
+### 9a. `adb shell` NEVER propagates the exit code — this is the big one
+
+The vendor adbd returns **0 for every command**, successful or not:
+
+```console
+$ adb shell "exit 7" ; echo $?      -> 0
+$ adb shell "false"  ; echo $?      -> 0
+$ adb shell "grep -q zzz /system/etc/hosts" ; echo $?   -> 0
+```
+
+So `adb shell '<cmd>' && ok` and `adb shell '<cmd>' || die` are **both dead
+code**: the first always fires, the second never does. This was found the hard
+way, by running the scripts against a freshly restored stock device — a debloat
+script cheerfully reported `ok /system back to ro` and `ok already present` (for
+a hosts entry that was not there) while both commands had actually failed. Worse,
+`31-patch-framework.sh` depends on aborting if the mtime restore fails; that
+guard would never have fired, and a missed mtime means PMS re-verifies a stale
+signature and the framework breaks.
+
+`lib.sh` therefore provides:
+
+```bash
+sh_out "<cmd>"   # prints remote stdout, returns the REAL exit status
+sh_ok  "<cmd>"   # just the status
+system_is_rw     # checks /proc/mounts rather than trusting `mount`
+```
+
+`sh_*` appends `; echo __RC=$?` and parses the marker back out of the output.
+**Use `sh_ok` for anything you branch on**, and plain `adb_ shell` only when you
+want the output and do not care about the status. Output-based tests
+(`[ -n "$(adb shell ...)" ]`) work too and are sometimes simpler.
+
+### 9b. Other device-shell gaps that bite
+
+- **No `printf`.** `adb shell "printf ..."` gives `printf: not found`, rc=127.
+  `echo` is an mksh builtin and works; so does `busybox printf`. A script that
+  appends a line with `printf` silently appends nothing — which is exactly how
+  the hosts blackhole got skipped on the first validation run, and the fixed
+  version then failed loudly instead.
+- **`ls` does not support `--time-style`.** It prints `ls: Unknown option '--'.
+  Aborting.` and produces empty output, so parsing `ls -l` for a timestamp
+  silently yields an empty string. Use `busybox stat -c %Y <file>` for an epoch.
 - **`adb exec-out` does not work** — fails with `error: closed`. Use
   `adb shell` for text and `adb pull` for binary.
 - **`adb pull` reads block devices correctly** (`adb pull /dev/block/mmcblk0p5`),
   which is how the backups are taken. No TWRP required.
+- **Missing device tools:** `printf`, `which`, `uname`, `sha256sum`, `head`,
+  `wc`. Present: `md5`, `echo` (builtin), `busybox`, `gzip`, `dd`, `cpio`. Do not
+  build scripts on the assumption of a normal userland — and note that a failed
+  `which` looks like "tool absent" even when the tool exists.
 - **`/dev/bus/usb` may not exist inside a container/sandbox**, so `fastboot`
   cannot reach the device from there even though `lsusb` works. `adb` can, via a
   host adb server (`ADB_SERVER_SOCKET`). Partition pulls still work because they
   go over that adb connection.
-- **Missing device tools:** `which`, `uname`, `sha256sum`, `head`, `wc`. Present:
-  `md5`, `busybox`, `gzip`, `dd`, `cpio`, `stat`-lite. Do not build scripts on
-  the assumption of a normal userland — and note that a failed `which` looks like
-  "tool absent" even when the tool exists.
+
+### 9c. Anything pushed into `/system/app` is scanned immediately
+
+PMS runs a `FileObserver` over `/system/app`, so a file appearing there is picked
+up and dexopted at once — no reboot required. That is why the helper script finds
+a `/data/dalvik-cache/system@app@UmsHelper.apk@classes.dex` moments after pushing
+the APK, and correctly deletes it. Pushing a *replacement* over an existing
+system APK is exactly the stale-odex trap in §6.
 
 ## 10. USB mass storage takes the volume away from Android
 
