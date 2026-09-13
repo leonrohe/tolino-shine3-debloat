@@ -5,6 +5,37 @@ cause that was confirmed — not a guess.
 
 ---
 
+### `adb devices` is empty, and the reader shows up in `lsusb` fine
+
+**Cause:** the reader is not offering adb on its USB gadget. It is disabled by
+default, and a factory restore turns it off again — the `adb` flag lives in
+`persist.sys.usb.config`, which is stored in `/data/property`, and a restore
+rewrites `/data`.
+
+**Tell which side is broken by the USB product ID:**
+
+```
+1f85:6053   mass storage only, no adb   ->  problem is on the READER
+1f85:6052   mass_storage,adb            ->  adb is offered; look at the host
+```
+
+**Fix:** on the reader, open the hidden Debug menu — go to the **search page**,
+type the code for your firmware, and submit the search:
+
+| Firmware | Debug code |
+|---|---|
+| **16.x** | **`112358132fb`** |
+| 15.x | `1123581321` |
+| 14.x | `124816` |
+
+The codes change between major versions, so a guide written for 15.x will send
+you down a rabbit hole on 16.x. Page through the menu with the on-screen buttons
+with the reader connected; when adb comes up the PID flips to `6052` and
+`adb devices` lists the reader. Nothing host-side (`adb kill-server`, replugging,
+udev rules) can fix a device that is not offering adb in the first place.
+
+---
+
 ### `fastboot devices` shows nothing, or it waits forever
 
 **Cause:** the bootloader only listens for about **5 seconds** after entering

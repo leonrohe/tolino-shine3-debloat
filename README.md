@@ -56,6 +56,7 @@ No vendor binaries, because they are proprietary and large. You supply them:
 
 | You need | Where from |
 |---|---|
+| **A reader with its Debug menu enabled** (otherwise there is no adb — see below) | the reader itself: search page → `112358132fb` |
 | Official 16.2.0 firmware `update.zip` | `https://download.pageplace.de/ereader/16.2.0/OS44/update.zip` |
 | `adb`, `fastboot` | Android SDK platform-tools |
 | `apktool` (not needed to run the pipeline) | optional, for poking at APKs |
@@ -68,34 +69,70 @@ The repo contains only original scripts and documentation (MIT).
 
 ---
 
+## Before anything: the reader must offer adb
+
+**There is no adb until you enable the hidden Debug menu on the reader itself.**
+It is off by default, and a factory restore removes it again — the `adb` flag
+lives in `persist.sys.usb.config`, which is stored in `/data/property`, and a
+restore rewrites `/data`.
+
+On the reader's **search page**, type the code for your firmware and submit the
+search:
+
+| Firmware | Debug code |
+|---|---|
+| **16.x** | **`112358132fb`** |
+| 15.x | `1123581321` |
+| 14.x | `124816` |
+
+The menu pages with the on-screen buttons; page 3 installs APKs from the reader's
+storage root (which is itself a fallback for installing KOReader with no adb).
+
+You can tell which side a problem is on without guessing — the USB product ID
+changes with the gadget composition:
+
+```
+1f85:6053   mass storage only, no adb   ->  `adb devices` is empty
+1f85:6052   mass_storage,adb            ->  the reader is listed
+```
+
+If you see `6053`, the device is not offering adb and nothing host-side will fix
+it. More detail: [`docs/factory-restore.md`](docs/factory-restore.md).
+
+---
+
 ## Quick start
 
 ```bash
-# 0. confirm you are talking to the right device
+# 0. ON THE READER FIRST: search page -> 112358132fb -> submit the search.
+#    Then confirm the host can see it (expect 1f85:6052, not 6053):
+adb devices
+
+# 1. confirm you are talking to the right device
 scripts/00-check-device.sh
 
-# 1. get a stock boot image out of the official firmware
+# 2. get a stock boot image out of the official firmware
 scripts/20-root.sh extract ~/Downloads/update.zip
 
-# 2. build the RAM-only rooted image, boot it, wait for a root shell
+# 3. build the RAM-only rooted image, boot it, wait for a root shell
 scripts/20-root.sh build
 scripts/20-root.sh boot
 
-# 3. back everything up WHILE ROOTED (this is the important step)
+# 4. back everything up WHILE ROOTED (this is the important step)
 scripts/10-backup.sh
 
-# 4. MAKE SURE KOReader IS INSTALLED FIRST - EPubProd.apk is the stock launcher
+# 5. MAKE SURE KOReader IS INSTALLED FIRST - EPubProd.apk is the stock launcher
 adb install koreader.apk
 # ... see docs/koreader-as-home.md ...
 
-# 5. remove the store / telemetry / retail content
+# 6. remove the store / telemetry / retail content
 scripts/30-debloat.sh
 
-# 6. make the permission grantable, and install the USB helper
+# 7. make the permission grantable, and install the USB helper
 scripts/31-patch-framework.sh
 scripts/40-install-ums-helper.sh
 
-# 7. reboot, then verify
+# 8. reboot, then verify
 adb reboot && sleep 45
 scripts/00-check-device.sh
 ```
