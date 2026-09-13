@@ -168,6 +168,23 @@ no fallback**. And on this build `nativeLibraryDir` is `/data/app-lib/<name>` fo
 cause was found after logcat had already rotated. A screenshot read the exception
 straight off the panel.*
 
+The log in that screenshot proves both loading mechanisms side by side, which is
+the clearest evidence for this whole section:
+
+```
+I/MainActivity: loading libluajit-launcher.so 0x41137e80
+D/dalvikvm: No JNI_OnLoad found in /system/lib/libluajit-launcher.so   <- FOUND (System.loadLibrary)
+D/dalvikvm: No JNI_OnLoad found in /system/lib/libluajit.so
+...
+java.lang.IllegalArgumentException: Unable to find native library: luajit-launcher   <- NOT FOUND
+```
+
+So the Java-side `System.loadLibrary` call **succeeded** — the linker's default
+search path did include `/system/lib` and it loaded the library from there. The
+failure came afterwards, from `NativeActivity`'s own absolute-path load against
+`nativeLibraryDir`. Copying libraries into `/system/lib` therefore cannot fix
+this, no matter how they are named or permissioned.
+
 Evidence that this is a property of the build, not of one app — every package,
 including pristine system APKs with no `/data` history:
 
