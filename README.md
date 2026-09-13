@@ -59,11 +59,11 @@ No vendor binaries, because they are proprietary and large. You supply them:
 | **A reader with its Debug menu enabled** (otherwise there is no adb — see below) | the reader itself: search page → `112358132fb` |
 | Official 16.2.0 firmware `update.zip` | `https://download.pageplace.de/ereader/16.2.0/OS44/update.zip` |
 | `adb`, `fastboot` | Android SDK platform-tools |
-| `apktool` (not needed to run the pipeline) | optional, for poking at APKs |
 | Android SDK build-tools + JDK 8+ | to build the helper |
 | `e2fsprogs` (`e2fsck`, `resize2fs`, `dumpe2fs`, `debugfs`) | your distro |
 | `cpio`, `python3`, `unzip` | your distro |
-| KOReader APK | <https://github.com/koreader/koreader/releases> |
+| KOReader APK | <https://github.com/koreader/koreader/releases> — **must be patched to declare HOME**, see [`docs/koreader-as-home.md`](docs/koreader-as-home.md) |
+| `apktool` + `uber-apk-signer` jars | <https://github.com/iBotPeaches/Apktool/releases>, <https://github.com/patrickfav/uber-apk-signer/releases> — needed for that patch |
 
 The repo contains only original scripts and documentation (MIT).
 
@@ -121,9 +121,16 @@ scripts/20-root.sh boot
 # 4. back everything up WHILE ROOTED (this is the important step)
 scripts/10-backup.sh
 
-# 5. MAKE SURE KOReader IS INSTALLED FIRST - EPubProd.apk is the stock launcher
-adb install koreader.apk
-# ... see docs/koreader-as-home.md ...
+# 5. INSTALL A LAUNCHER-CAPABLE KOReader FIRST, and make sure it really is one.
+#    The next step deletes EPubProd.apk, the stock launcher - and the OFFICIAL
+#    KOReader APK does NOT declare the HOME category. Install it as it comes and
+#    the device ends up with NO home app: a screen with nothing on it.
+#    Patch the manifest and re-sign first - full recipe in
+#    docs/koreader-as-home.md, and confirm the result:
+#        aapt2 dump xmltree --file AndroidManifest.xml koreader-home.apk \
+#          | grep -c android.intent.category.HOME        # must not be 0
+adb install koreader-home.apk
+#    (30-debloat.sh re-checks this and refuses to run if no launcher would remain)
 
 # 6. remove the store / telemetry / retail content
 scripts/30-debloat.sh
@@ -279,7 +286,8 @@ official OTA writes on this hardware, and the adb-after-restore gotcha — see
   self-heals via a runtime restart in ~20 s. Treat it as a rare vendor flake; if
   it recurs reliably, delay the helper's UMS enable at boot.
 - **KOReader is not wipe-durable, and cannot cheaply be.** It is a `/data` app,
-  so a factory reset removes it (one `adb install` restores it). Moving it to
+  so a factory reset removes it. Restoring it means reinstalling your **patched**
+  APK - not the official one, which cannot be a launcher. Moving it to
   `/system/app` **breaks it**: its `MainActivity` is a `NativeActivity`, which
   resolves its native library through `nativeLibraryDir` — on this build always
   `/data/app-lib/<name>` — and never falls back to `/system/lib`. See

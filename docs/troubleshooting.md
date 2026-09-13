@@ -201,7 +201,7 @@ rm -f /system/app/KOReader.apk
 rm -f /system/lib/{libsdcv,libluajit,libluajit-launcher,libkoreader-monolibtic,libioctl}.so
 mount -o remount,ro /system
 adb reboot
-adb install koreader.apk
+adb install koreader-home.apk     # your HOME-patched build, NOT the official APK
 ```
 
 Reading position survives, because it lives on the user partition.
@@ -234,7 +234,7 @@ happened when the helper was briefly given the HOME category.
 `/data`). Nothing was in `/system` to fall back to.
 
 **Fix:** the device is not bricked — `adbd` lives in the ramdisk, so it survives.
-`adb install koreader.apk` restores it. Note that a rescue launcher in `/system`
+reinstalling your HOME-patched KOReader restores it. Note that a rescue launcher in `/system`
 would only help someone with no PC and no cable, and it reintroduces the chooser
 problem above, so it is deliberately not part of this project.
 

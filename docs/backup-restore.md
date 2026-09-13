@@ -11,7 +11,8 @@ rather than assuming it is.** A backup you have never validated is a hypothesis.
 | `mmcblk0p1` (`/boot`) | `boot-partition-p1.img` | to prove/restore a stock boot partition |
 
 You do **not** need to back up `/data` (p7): it holds the KOReader APK
-(reinstallable with `adb install`) and app state. KOReader's real settings live on
+(reinstallable from your patched APK, see koreader-as-home.md) and app state.
+KOReader's real settings live on
 the user partition p4, which a factory reset does not touch (see
 `findings.md` §11).
 

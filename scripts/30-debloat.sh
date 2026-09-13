@@ -44,15 +44,41 @@ FILES=(
 
 # ---------------------------------------------------------------------------
 # guard: never leave the device without a launcher
+#
+# The old version of this check merely asked whether KOReader was INSTALLED.
+# That is not the same question, and the difference is a bricked UI: EPubProd.apk
+# is the stock launcher, the OFFICIAL KOReader APK does not declare HOME (see
+# docs/koreader-as-home.md), so "installed" can be true while nothing on the
+# device can actually be the home app. Ask the package manager instead.
 # ---------------------------------------------------------------------------
 if [ "$FORCE" != "1" ]; then
-  if ! adb_ shell "pm path org.koreader.launcher" 2>/dev/null | grep -q package:; then
-    if ! adb_ shell "pm list packages" 2>/dev/null | grep -qiE 'launcher|nova|apex|kiss'; then
-      die "no alternative HOME app found, and EPubProd.apk is the stock launcher.
-   Install one first (see docs/koreader-as-home.md), or pass --force to override."
-    fi
+  step "launcher check"
+  declarers="$(home_declarers)"
+  if [ -n "$declarers" ]; then
+    printf '    declaring HOME: %s\n' "$(echo "$declarers" | tr '\n' ' ')"
+  else
+    printf '    declaring HOME: (could not read the resolver table)\n'
   fi
-  ok "an alternative launcher is present"
+  # Anything that declares HOME and is NOT the stock launcher we are about to
+  # delete is an acceptable replacement.
+  alt="$(printf '%s\n' "$declarers" | grep -v '^de\.telekom\.epub$' | grep -v '^$' || true)"
+  if [ -z "$alt" ]; then
+    cat >&2 <<'EOF'
+FATAL no installed app other than the stock launcher declares HOME.
+
+   Deleting EPubProd.apk now would leave this device with NO home app at all -
+   it would boot to a screen with nothing to start. Install a launcher-capable
+   replacement first, then re-run.
+
+   The OFFICIAL KOReader APK does NOT qualify: it declares no HOME category.
+   You must patch its manifest (add HOME + DEFAULT to MainActivity) and re-sign
+   it. The full recipe is in docs/koreader-as-home.md.
+
+   If you have verified your replacement by hand, pass --force.
+EOF
+    exit 1
+  fi
+  ok "a replacement launcher is present: $(echo "$alt" | tr '\n' ' ')"
 fi
 
 step "will remove"

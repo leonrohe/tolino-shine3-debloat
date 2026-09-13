@@ -105,6 +105,38 @@ system_is_rw() {
   adb_ shell "grep ' /system ' /proc/mounts" 2>/dev/null | tr -d '\r' | grep -q ' rw,\| rw '
 }
 
+# ---------------------------------------------------------------------------
+# Who can actually be the launcher?
+#
+# This is a safety check, not a nicety. 30-debloat.sh deletes EPubProd.apk,
+# which is the stock launcher - and the OFFICIAL KOReader APK does NOT declare
+# the HOME category (see docs/koreader-as-home.md). "KOReader is installed" is
+# therefore NOT sufficient: delete the stock launcher while the replacement
+# cannot be a launcher and the device boots to a screen with no way to start
+# anything.
+#
+# Ask the package manager which packages declare HOME, via its own resolver
+# table - one adb call, no APK parsing:
+#
+#   Activity Resolver Table:
+#     Non-Data Actions:
+#         android.intent.action.MAIN:
+#           41e41ba8 org.koreader.launcher/.MainActivity filter 41ee96d8
+#             Action: "android.intent.action.MAIN"
+#             Category: "android.intent.category.HOME"
+# ---------------------------------------------------------------------------
+home_declarers() {
+  adb_ shell "dumpsys package" 2>/dev/null | tr -d '\r' | awk '
+    /^[[:space:]]*[0-9a-f]+ [A-Za-z0-9_.]+\// {
+      l = $0
+      sub(/^[[:space:]]*[0-9a-f]+ /, "", l)
+      sub(/\/.*/, "", l)
+      pkg = l
+    }
+    /Category: "android\.intent\.category\.HOME"/ { if (pkg != "") print pkg }
+  ' | sort -u
+}
+
 require_adb() {
   need_cmd "$ADB"
   [ "$(adb_ get-state 2>/dev/null)" = "device" ] \

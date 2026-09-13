@@ -1,62 +1,92 @@
 # KOReader as the home app
 
-KOReader is the only launcher on the device. That is deliberate, and it has one
-important consequence you should understand before touching anything.
+KOReader is the only launcher on the device. That is deliberate, and it does
+**not** happen by itself.
 
-## Install
+## The official APK is not a launcher
+
+The release APK from GitHub does **not** declare the HOME category, so Android
+will never offer it as a home app. Verified by parsing the binary manifest of
+`koreader-android-arm-v2026.07.1.apk` straight from the release:
+
+| MAIN intent-filter of `org.koreader.launcher.MainActivity` | official APK | after the patch |
+|---|---|---|
+| `android.intent.category.LAUNCHER` | yes | yes |
+| `android.intent.category.LEANBACK_LAUNCHER` | yes | yes |
+| `android.intent.category.HOME` | **no** | **yes** |
+| `android.intent.category.DEFAULT` | **no** | **yes** |
+
+Two further tells, both quick to check:
+
+```
+official  : 29,085,335 B   signer CN=Qingping Hou, OU=KOReader    HOME categories: 0
+patched   : 29,149,815 B   signer CN=Android Debug                HOME categories: 1
+```
+
+> **Do not be fooled by a patched APK lying around.** If you inherit a
+> `koreader.apk` from an earlier attempt it may already be the rebuilt,
+> debug-signed one, and inspecting *that* will tell you the official APK has
+> HOME when it does not. Check the signature, not just the manifest.
+
+## Prepare a HOME-capable APK
+
+You have to add the category yourself. With `apktool` and `uber-apk-signer`:
 
 ```bash
-adb install koreader.apk
+curl -sL -o koreader.apk \
+  https://github.com/koreader/koreader/releases/download/v2026.07.1/koreader-android-arm-v2026.07.1.apk
+
+java -jar apktool.jar d -f -o koreader-dec koreader.apk
 ```
 
-**KOReader declares the HOME category itself**, in the official signed APK, in
-`MainActivity`'s `MAIN` intent-filter:
+In `koreader-dec/AndroidManifest.xml`, take `MainActivity`'s `MAIN` filter:
 
-```
-E: activity  org.koreader.launcher.MainActivity
-    E: action    android.intent.action.MAIN
-    E: category  android.intent.category.LAUNCHER
-    E: category  android.intent.category.LEANBACK_LAUNCHER
-    E: category  android.intent.category.HOME
-    E: category  android.intent.category.DEFAULT
+```xml
+<intent-filter>
+    <action android:name="android.intent.action.MAIN"/>
+    <category android:name="android.intent.category.LAUNCHER"/>
+    <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
+</intent-filter>
 ```
 
-**Nothing has to set it.** With `EPubProd.apk` gone, KOReader is the *only* HOME
-app, so Android resolves HOME to it directly — no preference, no chooser.
-Verify:
+and add the two categories:
+
+```xml
+    <category android:name="android.intent.category.HOME"/>
+    <category android:name="android.intent.category.DEFAULT"/>
+```
+
+Then rebuild, sign, and install:
 
 ```bash
-adb shell pm path org.koreader.launcher
-#   package:/data/app/org.koreader.launcher-1.apk
+java -jar apktool.jar b koreader-dec -o koreader-home-unsigned.apk
+java -jar uber-apk-signer.jar -a koreader-home-unsigned.apk --overwrite
 
-adb shell dumpsys activity activities | grep mFocusedActivity
-#   ActivityRecord{… org.koreader.launcher/.MainActivity}
+# the debug-key signature differs from the official one, so an existing install
+# must go first - this deletes KOReader's APP data, not your books
+adb uninstall org.koreader.launcher
+adb install koreader-home-unsigned.apk
 ```
 
-## Do not patch the manifest — the old recipe is a trap
-
-A widely-copied recipe for earlier versions says to decode KOReader with apktool,
-*add* `HOME` and `DEFAULT` to `MainActivity`'s intent-filter, rebuild, sign with
-a debug key, and `adb uninstall` before installing. **On v2026.07.1 the premise
-is simply false** — the categories are already there (see the dump above).
-Verify it yourself rather than trusting any guide, including this one:
+Confirm the result before you rely on it:
 
 ```bash
-aapt2 dump xmltree --file AndroidManifest.xml koreader.apk | grep -A6 'E: activity'
+aapt2 dump xmltree --file AndroidManifest.xml koreader-home-unsigned.apk \
+  | grep -c android.intent.category.HOME        # must be >= 1, not 0
 ```
 
-Adding them again is harmless to the running app, which is exactly why the recipe
-appears to work and stays in circulation — the patch is a no-op and the *real*
-cause is simply that KOReader declares HOME and the other launcher is gone.
+## Why this is a hard requirement, not a nicety
 
-The cost of following it anyway is real:
+`scripts/30-debloat.sh` deletes `EPubProd.apk` — and that is the **only other app
+declaring HOME**. Remove it while the replacement cannot be a launcher and the
+device boots to a screen with no way to start anything. So `30-debloat.sh`
+refuses to run unless it can confirm that some installed launcher really declares
+HOME (it pulls the installed APK and parses its manifest; `--force` overrides).
 
-- You must re-sign with a **debug key**, so the app can never again be updated
-  with `adb install -r` from the official APK — the signatures differ. Every
-  update then needs an uninstall first, which takes KOReader's app data with it.
-- You drag `apktool` and `uber-apk-signer` into the process for nothing.
-
-Installing the official, signed APK is both simpler and strictly better.
+Nothing else needs to "set" the home app: with EPubProd gone, KOReader is the
+sole candidate, so Android resolves HOME to it with no preference and no chooser.
+A chooser only appears while *both* are installed — i.e. during the window
+between installing KOReader and running the debloat.
 
 ## ⚠️ Do NOT move KOReader into `/system/app`
 
@@ -83,26 +113,24 @@ than of KOReader, is in [`findings.md` §7](findings.md). The short version:
 **Exactly one app on this device should declare HOME.** An earlier helper build
 declared it, and because no default was set the device booted showing a
 *"Complete action using"* chooser between KOReader and the helper. The helper's
-manifest now deliberately omits the HOME category, and that is why the USB screen
+manifest now deliberately omits the HOME category, which is why the USB screen
 never competes with the reader.
 
-If you add any other app, check whether it declares HOME before installing.
+If you add any other app, check it before installing:
+
+```bash
+aapt2 dump xmltree --file AndroidManifest.xml some.apk | grep -c category.HOME
+```
 
 ## After a factory reset
 
-KOReader lives in `/data`, so a reset removes it. Your books and KOReader's
-settings do **not** disappear — they live on the user partition (`mmcblk0p4`,
-mounted `/storage/sdcard1`), which the stock recovery's wipe does not target
-(`findings.md` §11).
+KOReader lives in `/data`, so a reset removes it — and so does the patched
+signature's consequence: reinstall from your **prepared** APK, not from GitHub.
 
-So the recovery is one command:
-
-```bash
-adb install koreader.apk
-```
-
-Reading position and settings come back with it, because
-`/storage/sdcard1/koreader/settings.reader.lua` is still there.
+Your books and KOReader's settings do **not** disappear. They live on the user
+partition (`mmcblk0p4`, mounted `/storage/sdcard1`), which the stock recovery's
+wipe does not target (`findings.md` §11), so reading position comes back with
+`/storage/sdcard1/koreader/settings.reader.lua`.
 
 ## Where things live
 
@@ -120,9 +148,14 @@ WiFi is left enabled on purpose: KOReader's dictionary lookup and Wikipedia
 integration need it. If you want the device fully offline, turn it off in the
 framework settings — nothing in this project depends on it.
 
-## Updating KOReader later
+## Updating KOReader later — read this before you try
 
-A newer KOReader APK has a higher `versionCode`, so a plain
-`adb install -r koreader.apk` installs it into `/data/app` and it works normally.
-That is fine here precisely *because* KOReader is a `/data` app — the opposite of
-the durability trap described in `findings.md` §5.
+Because the installed copy is **debug-signed**, `adb install -r` of a newer
+*official* APK fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Updating means
+the full cycle: uninstall, prepare the new version (manifest patch + sign),
+install. The uninstall takes KOReader's app data with it — its real settings and
+reading positions are on `/storage/sdcard1`, so they survive, but anything kept
+in `/data/data/org.koreader.launcher` does not.
+
+That is the price of the HOME category, and it is worth knowing before you update
+in a hurry.

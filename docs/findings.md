@@ -331,7 +331,7 @@ SD card" as a separate, off-by-default option.
 
 Consequence: after a factory reset your library survives, `/system` is untouched,
 and the only thing you must redo is reinstalling apps that lived in `/data`
-(KOReader) — one `adb install`.
+(KOReader) — reinstall from your HOME-patched APK, see koreader-as-home.md.
 
 ## 12. What is deliberately left installed
 
