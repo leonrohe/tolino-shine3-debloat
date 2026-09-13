@@ -64,10 +64,14 @@ worth remembering.
 
 ## The USB screen
 
+![The USB storage screen](../docs/images/usb-storage-connected.png)
+
+*Plugging or unplugging the cable swaps the glyph and the text but moves nothing.*
+
 Fixed geometry, no `WRAP_CONTENT`: a `FrameLayout` with fixed dp sizes for the
-badge, heading, rule and body. The connected and disconnected variants therefore
-render at **identical** positions — unplugging the cable changes the glyph and the
-text but nothing moves. Verified byte-identical screenshots across three boots.
+badge, heading, rule and body, so the connected and disconnected variants render
+at **identical** positions. Verified as byte-identical screenshots across three
+boots.
 
 ## Permissions
 

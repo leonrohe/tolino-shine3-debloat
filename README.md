@@ -173,12 +173,6 @@ flip one `protectionLevel` in `framework-res.apk` so the helper may hold
 `MOUNT_UNMOUNT_FILESYSTEMS`, install the helper. (KOReader stays an ordinary
 `/data` app; see point 3.)
 
-![The USB storage screen](docs/images/usb-storage-connected.png)
-
-*The helper's USB screen. Fixed geometry throughout: plugging or unplugging the
-cable swaps the glyph and the text but moves nothing — verified as byte-identical
-screenshots across three boots.*
-
 **3. KOReader must be patched to be a launcher**, because the official APK
 declares no HOME category and point 2 deletes the stock launcher. That is what
 `scripts/25-prepare-koreader.sh` is for.
