@@ -161,80 +161,17 @@ trusting the image.
 
 ---
 
-## The step-by-step, with the reasoning
+## How it works, in four points
 
-### 0. Identify the device — `scripts/00-check-device.sh`
+**1. Root without writing anything.** `fastboot boot` loads a patched boot image
+into RAM and discards it on reboot, so the boot partition is never touched. The
+vendor `adbd` has to be NOP-patched in the *binary* — `ro.debuggable` alone does
+nothing, because it was built without `ALLOW_ADBD_ROOT`.
 
-Refuses to continue unless `ro.product.device` is `ntx_6sl`. This is the cheapest
-possible protection against writing a Tolino image onto a different e-reader.
-
-### 1. Get root without writing anything — `scripts/20-root.sh`
-
-The stock `adbd` on this firmware is built **without `ALLOW_ADBD_ROOT`**, so
-setting `ro.debuggable=1` is not enough — adbd unconditionally drops privileges.
-The build script NOP-patches two instruction sequences inside `sbin/adbd`, which
-reproduces byte-for-byte the patched adbd from the community root image
-(`md5 98bbfe2462b221eedb944f72315df789`). The kernel is copied through
-**byte-for-byte** on purpose: this model shipped with at least three different
-touch controllers whose drivers are built into the kernel, so a mismatched
-kernel is exactly what kills the touchscreen.
-
-The hard part is timing, not patching. The bootloader only listens for a
-fastboot command for about **5 seconds** after entering fastboot mode, so the
-script arms `fastboot boot` *first* (it blocks on `< waiting for any device >`)
-and only then triggers the device. `adb reboot bootloader` is a **no-op** on this
-device; use `adb reboot fastboot`, or the physical route (power off → USB
-connected → hold POWER ~30 s).
-
-### 2. Back up before changing anything — `scripts/10-backup.sh`
-
-Requires root, which is why step 1 comes first — the order is *root in RAM, then
-back up, then modify*. Backing up reads block devices with `adb pull`, which
-handles them correctly. (`adb exec-out` does **not** work against this KitKat
-adbd — it fails with `error: closed`.)
-
-Take `system-partition-p5.img` and `boot-partition-p1.img` somewhere that is not
-the device. See [`docs/backup-restore.md`](docs/backup-restore.md).
-
-### 3. Remove the store stack — `scripts/30-debloat.sh`
-
-Removes `EPubProd.apk` (shop, login, Adobe/LCP DRM, usage metrics — and the
-launcher), `SystemCrashReporter.apk`, the ~41 MB retail demo content, the AOSP
-sample wallpapers and screensaver, and a dead `ota.conf`; and blackholes the
-metrics host in `/etc/hosts`.
-
-The script **checks for an alternative launcher first** and refuses to continue
-otherwise, because removing `EPubProd.apk` with nothing to replace it leaves a
-device that boots to an empty screen.
-
-### 4. Make the permission grantable — `scripts/31-patch-framework.sh`
-
-The helper needs `MOUNT_UNMOUNT_FILESYSTEMS`, declared `signature|system`. This
-build's grant logic does not honour the `system` flag, so the permission is
-unobtainable. The patch flips its `protectionLevel` from `0x12` to `0` inside
-`framework-res.apk` — one attribute, one of 229 permissions.
-
-The subtlety that makes it work at all: the APK's JAR signature goes stale when
-we edit its manifest, but KitKat's `collectCertificatesLI()` **reuses the
-signatures cached in `packages.xml` without re-verifying**, as long as the file's
-`lastModified()` still matches the cached timestamp. So the script restores the
-original mtime after pushing. Move the mtime and the signature is re-checked,
-fails, and you have a broken framework.
-
-The patch is **byte-deterministic**: stock `bfe142ca…` always yields
-`f2aaeee092d30e8628214b300acc8798`. The script verifies both ends and refuses
-anything else.
-
-### 5. Install the USB helper — `scripts/40-install-ums-helper.sh`
-
-`de.telekom.epub` was what called `setUsbMassStorageEnabled(true)` when the cable
-was plugged in. Without it nothing ever shares a volume and the PC sees a
-0-byte drive. MTP is not an option: this ROM's framework knows only
-`audio_source`, `mass_storage` and `rndis`, and ships no `MtpService`.
-
-So `ums-helper/` is a small app that does just that one thing, plus a static USB
-screen so KOReader isn't frontmost while its storage volume belongs to the PC.
-It is deliberately **not** a launcher (see [`docs/koreader-as-home.md`](docs/koreader-as-home.md)).
+**2. The system-level changes all live in `/system`** — remove the store stack,
+flip one `protectionLevel` in `framework-res.apk` so the helper may hold
+`MOUNT_UNMOUNT_FILESYSTEMS`, install the helper. (KOReader stays an ordinary
+`/data` app; see point 3.)
 
 ![The USB storage screen](docs/images/usb-storage-connected.png)
 
@@ -242,18 +179,21 @@ It is deliberately **not** a launcher (see [`docs/koreader-as-home.md`](docs/kor
 cable swaps the glyph and the text but moves nothing — verified as byte-identical
 screenshots across three boots.*
 
-The script avoids two traps that cost real debugging time — the `/data/app`
-update trap and the stale-odex trap. Both are explained in
-[`docs/findings.md`](docs/findings.md).
+**3. KOReader must be patched to be a launcher**, because the official APK
+declares no HOME category and point 2 deletes the stock launcher. That is what
+`scripts/25-prepare-koreader.sh` is for.
 
-### 6. Optional: a system image you can flash back — `scripts/50-make-flashable-image.sh`
+**4. Recovery is a fastboot flash, not a ritual.** The system image is shrunk to
+fit the bootloader's 352 MiB download cap, so it restores the device even when
+Android will not boot.
 
-The bootloader caps a single fastboot download at **352 MiB**
-(`CONFIG_FASTBOOT_TRANSFER_BUF_SIZE`), and a full 384 MiB `/system` image is
-rejected instantly with `FAILED (remote: '')`. Since `/system` only *uses*
-~298 MB, this script shrinks the filesystem to fit while keeping ~80 MB free.
-Flashing that through fastboot is a recovery path that needs **only the
-bootloader** — it works even when Android will not boot.
+**The reasoning behind every non-obvious decision — and the traps that cost real
+debugging time — is in [`docs/findings.md`](docs/findings.md). Read it before
+improvising.** The other docs go deeper on one subject each:
+[`koreader-as-home.md`](docs/koreader-as-home.md),
+[`backup-restore.md`](docs/backup-restore.md),
+[`factory-restore.md`](docs/factory-restore.md),
+[`troubleshooting.md`](docs/troubleshooting.md).
 
 ---
 
@@ -266,6 +206,7 @@ bootloader** — it works even when Android will not boot.
 | Restore the exact original `/system` | `dd` the raw image over `mmcblk0p5` from a rooted session |
 | Go back to stock completely | the official `update.zip` via stock recovery |
 | Root again, later | `scripts/20-root.sh boot` |
+| Reinstall KOReader after a wipe | `adb install <your patched>.apk` — the official APK cannot be a launcher, see [`docs/koreader-as-home.md`](docs/koreader-as-home.md) |
 
 Details and the exact commands: [`docs/backup-restore.md`](docs/backup-restore.md).
 For a full return to stock — including an audit of exactly which partitions the
@@ -291,8 +232,9 @@ official OTA writes on this hardware, and the adb-after-restore gotcha — see
 - **A factory reset does not touch your books.** The stock recovery's wipe path
   formats `/data` and `/cache` only; the user partition (p4) is not a wipe
   target. You will still need to reinstall KOReader into the emptied `/data`.
-- **`/system` free space is 81 MiB with the shrunken image**, down from 121.7 MiB.
-  That is the cost of fitting the fastboot cap and is ample in practice.
+- **A *flashed* shrunken image leaves 81 MiB free on `/system`**, against 121.7 MiB
+  for the real thing. It only matters if you restore that way, and 81 MiB is ample
+  (`scripts/50-make-flashable-image.sh` prints the number it achieves).
 
 ---
 
