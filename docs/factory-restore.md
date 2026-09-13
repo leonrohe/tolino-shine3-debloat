@@ -136,7 +136,38 @@ back *without* adb, and you can see it change:
 | `mass_storage,adb` | `1f85:6052` |
 | mass storage, no adb | `1f85:6053` |
 
-`adb devices` will be empty no matter what you do on the host side. **Enable
-Debug Mode / USB debugging in the stock launcher's developer settings first**,
-and only then will the device appear. This catches people out because the host
-side looks broken when in fact the device simply isn't offering adb.
+`adb devices` will be empty no matter what you do on the host side. **You must
+open the hidden Debug menu in the stock launcher first**, and only then will the
+device appear.
+
+The code is typed into the reader's **search field**, then submit the search:
+
+| Firmware | Debug code |
+|---|---|
+| **16.x** | **`112358132fb`** |
+| 15.x | `1123581321` |
+| 14.x | `124816` |
+
+(These change between major versions — that is why guides for 15.x do not work on
+16.x. Source: [clickomania.ch](https://blog.clickomania.ch/2025/06/20/apk-installation-auf-dem-tolino/),
+confirmed against a Shine 3 on 16.2.0.)
+
+The menu pages with the on-screen buttons; **page 3 installs APKs** from the
+reader's storage root. Turning the debug menu on is what restores the `adb` flag
+in `persist.sys.usb.config`, and you can watch it happen on the host side — the
+gadget product ID changes back:
+
+```
+1f85:6053   (mass storage only, adb absent)   ->  adb devices: empty
+1f85:6052   (mass_storage,adb)                ->  adb devices: lists the reader
+```
+
+That PID check is a fast way to tell "the device is not offering adb" apart from
+"my host-side adb is broken". If you see `6053`, the problem is on the device,
+not on the PC.
+
+This same debug menu is also a fallback for installing KOReader without adb at
+all: copy the APK to the storage root and use page 3. Note that it reports
+`Well, that did not work! Wrong apk?` even when the install **succeeded** — the
+error message is wrong.
+
