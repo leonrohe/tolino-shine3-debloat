@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------------
+# This repo reproduces a device modification. It deliberately does NOT ship any
+# vendor firmware, stock APKs, or partition dumps - those are proprietary and
+# hundreds of MB. Everything below is fetched or generated locally.
+# ---------------------------------------------------------------------------
+
+# local working data (device dumps, extracted trees, firmware)
+work/
+backups/
+*.img
+*.bin
+*.cpio
+*.tbz
+*.tar.gz
+
+# vendor / third-party binaries
+*.apk
+*.apk.idsig
+*.jar
+*.odex
+*.dex
+*.zip
+*.db
+
+# signing keys - `ums-helper/build.sh` generates its own debug keystore
+*.keystore
+*.jks
+
+# build output
+ums-helper/build/
+
+# python
+__pycache__/
+*.pyc

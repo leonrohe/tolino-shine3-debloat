@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  USB-mode helper for the Tolino Shine 3.
+
+  The stock Tolino app (de.telekom.epub) called
+  IMountService.setUsbMassStorageEnabled(true) when the cable was plugged in,
+  which is what made the reader's storage appear as a drive on the PC. It also
+  carried the shop, login and usage-metrics code, so it was removed. This
+  replaces ONLY the USB behaviour.
+
+  Mass storage takes /storage/sdcard1 away from Android, so KOReader (the home
+  app, which needs that volume) must not be in the foreground while it is
+  shared. The stock app showed its own USB screen; this does the same:
+
+    cable in  -> share the volume, show UsbModeActivity
+    cable out -> unshare + remount, then bring KOReader back
+
+  NOTE: UsbModeActivity deliberately does NOT declare the HOME category. An
+  earlier version did, and because no HOME preference was set the device started
+  showing a "Complete action using" chooser between KOReader and this app.
+  KOReader is the only home app on purpose.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.tolino.umshelper"
+    android:versionCode="14"
+    android:versionName="4.4">
+
+    <uses-sdk android:minSdkVersion="19" android:targetSdkVersion="19" />
+
+    <uses-permission android:name="android.permission.MOUNT_UNMOUNT_FILESYSTEMS" />
+    <!-- lets us stop KOReader before its storage volume is taken away -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+
+    <application android:label="USB Storage">
+        <activity
+            android:name=".UsbModeActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true" />
+
+        <receiver android:name=".UmsReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.UMS_CONNECTED" />
+                <action android:name="android.intent.action.UMS_DISCONNECTED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
