@@ -9,8 +9,21 @@ important consequence you should understand before touching anything.
 adb install koreader.apk
 ```
 
-KOReader declares the HOME category, so with the stock launcher gone it becomes
-the device's home app. Verify:
+**KOReader declares the HOME category itself**, in the official signed APK, in
+`MainActivity`'s `MAIN` intent-filter:
+
+```
+E: activity  org.koreader.launcher.MainActivity
+    E: action    android.intent.action.MAIN
+    E: category  android.intent.category.LAUNCHER
+    E: category  android.intent.category.LEANBACK_LAUNCHER
+    E: category  android.intent.category.HOME
+    E: category  android.intent.category.DEFAULT
+```
+
+**Nothing has to set it.** With `EPubProd.apk` gone, KOReader is the *only* HOME
+app, so Android resolves HOME to it directly — no preference, no chooser.
+Verify:
 
 ```bash
 adb shell pm path org.koreader.launcher
@@ -19,6 +32,31 @@ adb shell pm path org.koreader.launcher
 adb shell dumpsys activity activities | grep mFocusedActivity
 #   ActivityRecord{… org.koreader.launcher/.MainActivity}
 ```
+
+## Do not patch the manifest — the old recipe is a trap
+
+A widely-copied recipe for earlier versions says to decode KOReader with apktool,
+*add* `HOME` and `DEFAULT` to `MainActivity`'s intent-filter, rebuild, sign with
+a debug key, and `adb uninstall` before installing. **On v2026.07.1 the premise
+is simply false** — the categories are already there (see the dump above).
+Verify it yourself rather than trusting any guide, including this one:
+
+```bash
+aapt2 dump xmltree --file AndroidManifest.xml koreader.apk | grep -A6 'E: activity'
+```
+
+Adding them again is harmless to the running app, which is exactly why the recipe
+appears to work and stays in circulation — the patch is a no-op and the *real*
+cause is simply that KOReader declares HOME and the other launcher is gone.
+
+The cost of following it anyway is real:
+
+- You must re-sign with a **debug key**, so the app can never again be updated
+  with `adb install -r` from the official APK — the signatures differ. Every
+  update then needs an uninstall first, which takes KOReader's app data with it.
+- You drag `apktool` and `uber-apk-signer` into the process for nothing.
+
+Installing the official, signed APK is both simpler and strictly better.
 
 ## ⚠️ Do NOT move KOReader into `/system/app`
 
