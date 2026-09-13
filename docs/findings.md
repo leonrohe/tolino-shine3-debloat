@@ -162,6 +162,12 @@ KOReader's `MainActivity` is a `NativeActivity`. Unlike `System.loadLibrary`
 no fallback**. And on this build `nativeLibraryDir` is `/data/app-lib/<name>` for
 **every** package.
 
+![KOReader's own crash report after the failed relocation](images/nativeactivity-crash.png)
+
+*KOReader catches its own crashes and displays the log — which is how the real
+cause was found after logcat had already rotated. A screenshot read the exception
+straight off the panel.*
+
 Evidence that this is a property of the build, not of one app — every package,
 including pristine system APKs with no `/data` history:
 

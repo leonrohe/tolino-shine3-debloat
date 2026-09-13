@@ -23,6 +23,10 @@ launcher                             ->   KOReader
 root                                 ->   still none (nothing is flashed)
 ```
 
+![KOReader as the home app](docs/images/koreader-home.png)
+
+*After the debloat: KOReader is the only launcher, reading position intact.*
+
 ---
 
 ## ⚠️ Read this first
@@ -178,6 +182,12 @@ was plugged in. Without it nothing ever shares a volume and the PC sees a
 So `ums-helper/` is a small app that does just that one thing, plus a static USB
 screen so KOReader isn't frontmost while its storage volume belongs to the PC.
 It is deliberately **not** a launcher (see [`docs/koreader-as-home.md`](docs/koreader-as-home.md)).
+
+![The USB storage screen](docs/images/usb-storage-connected.png)
+
+*The helper's USB screen. Fixed geometry throughout: plugging or unplugging the
+cable swaps the glyph and the text but moves nothing — verified as byte-identical
+screenshots across three boots.*
 
 The script avoids two traps that cost real debugging time — the `/data/app`
 update trap and the stale-odex trap. Both are explained in

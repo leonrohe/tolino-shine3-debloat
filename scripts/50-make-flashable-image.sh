@@ -33,10 +33,29 @@ need_cmd resize2fs
 need_cmd e2fsck
 need_cmd dumpe2fs
 
-SRC="${1:?usage: $0 <raw-system.img> [out.img] [--blocks N]}"
+usage() {
+  cat <<EOF
+usage: $0 <raw-system.img> [out.img] [--blocks N]
+
+  <raw-system.img>   a /system image, e.g. work/backups/system-partition-p5.img
+  [out.img]          default: <raw-system>-FLASHABLE.img
+  [--blocks N]       force a filesystem size in 4096-byte blocks; by default the
+                     script picks the largest size that fits the fastboot cap
+EOF
+  exit 2
+}
+
+[ $# -ge 1 ] || usage
+case "${1:-}" in -h|--help) usage ;; esac
+
+SRC="$1"
 OUT="${2:-${1%.img}-FLASHABLE.img}"
+case "$OUT" in --*) OUT="${1%.img}-FLASHABLE.img" ;; esac
 BLOCKS=""
-[ "${3:-}" = "--blocks" ] && BLOCKS="${4:?--blocks needs a value}"
+if [ "${3:-}" = "--blocks" ]; then
+  [ -n "${4:-}" ] || usage
+  BLOCKS="$4"
+fi
 [ -f "$SRC" ] || die "no such file: $SRC"
 
 BLOCK_SIZE="$(dumpe2fs -h "$SRC" 2>/dev/null | awk '/^Block size/{print $3}')"
