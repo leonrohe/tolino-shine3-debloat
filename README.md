@@ -215,6 +215,9 @@ bootloader** — it works even when Android will not boot.
 | Root again, later | `scripts/20-root.sh boot` |
 
 Details and the exact commands: [`docs/backup-restore.md`](docs/backup-restore.md).
+For a full return to stock — including an audit of exactly which partitions the
+official OTA writes on this hardware, and the adb-after-restore gotcha — see
+[`docs/factory-restore.md`](docs/factory-restore.md).
 
 ---
 
@@ -254,7 +257,8 @@ root/              build-rooted-boot.sh, verify-rooted-boot.sh
 framework-patch/   patch-axml.py (binary AXML), repack-apk.py
 ums-helper/        the USB mass-storage helper: source, manifest, build.sh
 docs/              findings.md (READ THIS), backup-restore.md,
-                   troubleshooting.md, koreader-as-home.md
+                   troubleshooting.md, koreader-as-home.md,
+                   factory-restore.md
 ```
 
 ## Prior art and credit
