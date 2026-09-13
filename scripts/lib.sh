@@ -105,9 +105,15 @@ system_is_rw() {
   adb_ shell "grep ' /system ' /proc/mounts" 2>/dev/null | tr -d '\r' | grep -q ' rw,\| rw '
 }
 
+# Locate aapt2. It ships in Android SDK build-tools and is almost never on PATH.
+find_aapt2() {
+  if command -v aapt2 >/dev/null 2>&1; then command -v aapt2; return 0; fi
+  local sdk="${SDK:-$HOME/Android/Sdk}"
+  ls -d "$sdk"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1
+}
+
 # ---------------------------------------------------------------------------
 # Who can actually be the launcher?
-#
 # This is a safety check, not a nicety. 30-debloat.sh deletes EPubProd.apk,
 # which is the stock launcher - and the OFFICIAL KOReader APK does NOT declare
 # the HOME category (see docs/koreader-as-home.md). "KOReader is installed" is

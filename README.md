@@ -121,15 +121,11 @@ scripts/20-root.sh boot
 # 4. back everything up WHILE ROOTED (this is the important step)
 scripts/10-backup.sh
 
-# 5. INSTALL A LAUNCHER-CAPABLE KOReader FIRST, and make sure it really is one.
-#    The next step deletes EPubProd.apk, the stock launcher - and the OFFICIAL
-#    KOReader APK does NOT declare the HOME category. Install it as it comes and
-#    the device ends up with NO home app: a screen with nothing on it.
-#    Patch the manifest and re-sign first - full recipe in
-#    docs/koreader-as-home.md, and confirm the result:
-#        aapt2 dump xmltree --file AndroidManifest.xml koreader-home.apk \
-#          | grep -c android.intent.category.HOME        # must not be 0
-adb install koreader-home.apk
+# 5. PREPARE AND INSTALL A LAUNCHER-CAPABLE KOReader - before step 6 deletes
+#    EPubProd.apk, the stock launcher. The OFFICIAL KOReader APK does NOT declare
+#    HOME, so installing it as-is leaves the device with no home app at all.
+#    25 downloads it, adds HOME + DEFAULT, rebuilds, signs and verifies:
+scripts/25-prepare-koreader.sh --install
 #    (30-debloat.sh re-checks this and refuses to run if no launcher would remain)
 
 # 6. remove the store / telemetry / retail content
@@ -307,6 +303,7 @@ scripts/           the pipeline, in order
   00-check-device  identity check (safe, read-only)
   10-backup        partition images (needs root)
   20-root          build + RAM-boot the rooted image; extract from firmware
+  25-prepare-koreader  patch + re-sign KOReader so it can be a launcher
   30-debloat       remove the store/telemetry/retail stack
   31-patch-framework  protectionLevel patch, mtime-preserving
   40-install-ums-helper  build + install into /system/app
